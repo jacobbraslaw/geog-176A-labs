@@ -1,0 +1,325 @@
+---
+title: "Geography 176A"
+author: "[Jacob Braslaw](https://jacobbraslaw.github.io/)"
+subtitle: "Lab 02: COVID-19 Pandemic"
+date: "8/17/2020"
+output: html_document
+---
+```{r, results="hide", echo=TRUE, include=FALSE}
+library(tidyverse)
+library(ggthemes)
+library(readr)
+library(readxl)
+library(zoo)
+```
+
+```{r, echo=TRUE, results='hide', include=FALSE}
+
+#Read in covid
+url = 'https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv'
+covid = read_csv(url)
+
+#Read in Land Data
+landDate = read_csv("../data/landdata-states.csv")
+
+#Read in Pop Estimates
+popEst = read_excel("../data/PopulationEstimates.xls", 
+    skip = 2)
+```
+##### Question 1: Find counties with more than 100 new cases per 100,000 residents of the past 14 days
+
+##### Find the 5 worst cumulative counties, 5 counties with most new case, list of safe counties, and a text report
+
+```{r, message=FALSE}
+#state of intrest
+state.interest= "California"
+
+newCases<- covid %>% 
+  filter(state== state.interest) %>% 
+  group_by(county, date) %>% 
+  summarise(totalCases=sum(cases))  %>% 
+  mutate(NewCases= totalCases- lag(totalCases)) %>% 
+  ungroup()
+
+```
+
+###### create 2 tables: 5 counties with most cumulative cases and 5 counties with most new cases
+```{r}
+#table: 5 most cumulative cases
+  
+mostCasesTbl<- newCases %>%
+  filter(date==max(date)) %>% 
+  select(county,totalCases) %>%  
+  slice_max(totalCases,n=5)  
+  
+  
+#make table nicer
+knitr::kable(mostCasesTbl, caption= "Total Cases by County", col.names = c("County", "Total Cases"), 
+format.args = list(big.mark = ","))
+```
+
+```{r}
+# table: 5 counties with most new cases
+
+mostNewCases<- newCases %>% 
+  filter(date==max(date)) %>%  
+  select(county, NewCases) %>% 
+  slice_max(NewCases, n=5)
+
+
+#make table nicer
+knitr::kable(mostNewCases, caption= "New Cases by County", col.names = c("County", "New Cases"), 
+format.args = list(big.mark = ","))
+```
+
+
+```{r}
+#use stateCases data set that is filtered to state.interest 
+stCases<- covid %>% 
+  filter(state == state.interest) %>% 
+  rename(FIPStxt = fips)
+
+
+stateCasesPopJoin<-left_join(stCases,popEst,by = "FIPStxt")
+```
+
+###### Create 2 tables: 5 counties with most cases per capita, 5 counties with most new cases per capita.
+
+```{r, warning=FALSE, message=FALSE}
+#Table1: most cumlative cases per capita
+
+mostCasesPerCapita<- stateCasesPopJoin %>% 
+  group_by(county, POP_ESTIMATE_2019,date) %>%  
+  summarise(totalCases=sum(cases)) %>% 
+  mutate(NewCases= totalCases- lag(totalCases)) %>% 
+  ungroup() %>% 
+  filter(date== max(date)) %>% 
+  mutate(casesPerCapita= totalCases/POP_ESTIMATE_2019) %>% 
+  select(county,casesPerCapita) %>% 
+  slice_max(casesPerCapita, n=5)
+
+
+#make table nicer
+
+knitr::kable(mostCasesPerCapita, caption= "Top 5 Highest Covid Cases by County Per Capitia", col.names = c("County", "Cases Per Capita"))
+```
+
+```{r, warning=FALSE, message=FALSE}
+#table 2: most current cases per capita
+newCasesPerCapita<- stateCasesPopJoin %>% 
+  group_by(county, POP_ESTIMATE_2019, date) %>% 
+  summarise(totalCases=sum(cases)) %>% 
+  mutate(NewCases= totalCases- lag(totalCases)) %>% 
+  ungroup() %>% 
+  filter(date==max(date)) %>% 
+  mutate(newCasesPerCap = NewCases/POP_ESTIMATE_2019) %>% 
+  select(county, newCasesPerCap) %>% 
+  slice_max(newCasesPerCap, n=5)
+
+
+#make table nicer
+
+knitr::kable(newCasesPerCapita, caption= "Top 5 Highest New Covid Cases by County Per Capitia", col.names = c("County", "New Cases Per Capita"))
+```
+
+
+```{r, message=FALSE}
+# 14 day data
+time.length = 13
+
+twoWeek<- stateCasesPopJoin %>% 
+  filter(date >= max(date)-time.length) %>% 
+  group_by(county,POP_ESTIMATE_2019,date) %>% 
+  summarise(totalcase= sum(cases)) %>% 
+  mutate(lagCases=totalcase-lag(totalcase,time.length)) %>% 
+  ungroup() %>% 
+  mutate(CasesPer = 100000*(lagCases/POP_ESTIMATE_2019)) %>% 
+  filter(CasesPer>100) %>% 
+  select(county,CasesPer) %>% 
+  arrange(-CasesPer)
+
+ 
+  knitr::kable(twoWeek, caption= "CA Counties With More Than 100 New Cases In The Past 14 days, per 100,000 Residents", col.names = c("County", "New Cases Per 100,000 Residents"))
+  
+```
+
+```{r, message=FALSE}
+#find total cases
+mostCasesTbl1<- newCases %>%
+  filter(date==max(date)) %>% 
+  select(county,totalCases) %>% 
+  summarise(stateTotal=sum(totalCases))
+
+#find total new, last 14 days
+twoWeek1<- stateCasesPopJoin %>% 
+  filter(date >= max(date)-time.length) %>% 
+  group_by(county,POP_ESTIMATE_2019,date) %>% 
+  summarise(totalcase= sum(cases)) %>% 
+  mutate(lagCases=totalcase-lag(totalcase,time.length)) %>% 
+  ungroup() %>% 
+  select(county,lagCases) %>% 
+  filter(lagCases>=0) %>% 
+  summarise(totNewCase= sum(lagCases))
+
+#find the safe counties
+twoWeek2<- stateCasesPopJoin %>% 
+  filter(date >= max(date)-time.length) %>% 
+  group_by(county,POP_ESTIMATE_2019,date) %>% 
+  summarise(totalcase= sum(cases)) %>% 
+  mutate(lagCases=totalcase-lag(totalcase,time.length)) %>% 
+  ungroup() %>% 
+  mutate(CasesPer = 100000*(lagCases/POP_ESTIMATE_2019)) %>% 
+  filter(CasesPer<100) %>% 
+  select(county,CasesPer) %>% 
+  arrange(CasesPer)
+
+
+knitr::kable(twoWeek2, caption= "Safe California Counties", col.names = c("County", "New Cases Per 100,000 People"))
+# 10:Results) Total number of cases in California is 621,981 and the total number of new cases in the past 14 days is 112,474. The total number of safe counties, (<100 new cases per 100,000 ppl) is 13 counties in California.
+```
+
+##### Question 2:
+###### In this question, we are going to look at the story of 4 states and the impact scale can have on data interprtation. The states include: New York, California, Louisiana, and Florida.
+
+
+```{r, message=FALSE, warning=FALSE}
+#create state level daily new and rolling 7 day average 
+states.of.interest <-  c("New York", "California", "Louisiana", "Florida")
+stateLvl<- covid %>% 
+ filter(state %in% states.of.interest) %>% 
+ group_by(state,date) %>% 
+  summarise(cases=sum(cases))  %>% 
+ mutate(DailyNewCases = c(NA, diff(cases)),
+         roll7=rollmean(DailyNewCases,7,fill = NA, align = "right")) %>% 
+  pivot_longer(cols = c(DailyNewCases,roll7),names_to = "type",values_to="values")
+
+#create ggplot of daily new cases and 7 day average
+plot01Lab2<- ggplot(data = stateLvl, aes(x=date, y=values))+
+  geom_line(aes(col = state))+
+  labs(x="Date", y="Case Count",
+       title= "New Daily COVID-19 Case Count and 7 Day Rolling Average",
+       caption = "Data From NY Times")+
+  facet_grid(type~state, scales = "free_y")+
+  theme_bw()+
+  ggsave(plot = last_plot(), file= "../img/COVIDPlot.png")
+plot01Lab2
+  
+#NY Times style
+stateLvls<- covid %>% 
+ filter(state %in% states.of.interest) %>% 
+ group_by(state,date) %>% 
+  summarise(cases=sum(cases))  %>% 
+ mutate(DailyNewCases = c(NA, diff(cases)),
+         roll7=rollmean(DailyNewCases,7,fill = NA, align = "right")) 
+
+#NY Times style ggplot of new daily cases
+nyTimes01<-  ggplot(data=stateLvls, aes(x = date)) +  
+  geom_col(aes(y = DailyNewCases), col = NA, fill = "#F5B8B5") +  
+  geom_line(aes(y = roll7), col = "darkred", size = 1) +  
+  theme_bw()+
+  labs(title = paste("New Daily COVID-19 Case Count and 7 Day Rolling Average", state.interest), x="Date", y= "Case Count") +  
+  facet_wrap(~state)+
+  ggsave(plot = last_plot(), file= "../img/NYTIIMESCOVIDPlot.png")
+nyTimes01
+```
+
+```{r, warning= FALSE , message=FALSE}
+#use region data to get common key
+region<- data.frame(State = state.abb, state = state.name)
+
+#statelvl1 has roll7, daily new cases, and total cases
+stateLv1<-  covid %>% 
+ filter(state %in% states.of.interest) %>% 
+ group_by(state,date) %>% 
+  summarise(cases=sum(cases))  %>% 
+ mutate(DailyNewCases = c(NA, diff(cases)),
+         roll7=rollmean(DailyNewCases,7,fill = NA, align = "right")) %>% 
+  ungroup() 
+ 
+
+  
+#table join region(aka state abbr) to stateLvl1
+stateLvl2<-left_join(stateLv1,region,by = "state") 
+
+
+#clean up population data to match at the stateLvl2, trick with divide by 2 to negate pop double counts
+popEst1<- popEst %>%   
+  group_by(State) %>% 
+  summarise(totalPop<- sum(POP_ESTIMATE_2019)/2)
+
+
+#table join the state_abb covid data to usda population data, now has correct state pop associated with covid cases
+#table also has new cases/pop and rolling7 per capita
+#recreating facet_grid to show total population 
+stateLvl3<-left_join(stateLvl2,popEst1,by = "State") %>% 
+  rename(state_pop = "totalPop <- sum(POP_ESTIMATE_2019)/2") %>% 
+  mutate(NewCasesPerCap= DailyNewCases/state_pop) %>% 
+  mutate(roll7PerCap=roll7/state_pop) %>% 
+  pivot_longer(cols = c(NewCasesPerCap,roll7PerCap),names_to ="type",values_to ="values")
+
+#make adjusted for population plot
+stateLvl3plot<- ggplot(data = stateLvl3, aes(x=date,y=values))+
+  geom_line(aes(color=state))+
+  scale_color_manual(values= c("California" = "red", "Florida" = "green", 
+      "Louisiana" = "blue", "New York"= "Cyan3")) + 
+  labs(x="Date", y="Case Count",
+       title= "New Daily COVID-19 Case Count and 7 Day Rolling Average",subtitle = "Adjusted Per Capita",
+       caption = "Data From NY Times")+
+  facet_grid(type~state, scales = "free_y")+
+  theme_bw()+
+  ggsave(plot = last_plot(), file= "../img/COVIDPlotAdjust.png")
+
+stateLvl3plot
+
+#NY Times style
+stateLvls3<-left_join(stateLvl2,popEst1,by = "State") %>% 
+  rename(state_pop = "totalPop <- sum(POP_ESTIMATE_2019)/2") %>% 
+  mutate(NewCasesPerCap= DailyNewCases/state_pop) %>% 
+  mutate(roll7PerCap=roll7/state_pop) 
+
+#NY Times style ggplot per capita
+nyTimes02<-  ggplot(data=stateLvls3, aes(x = date)) +  
+  geom_col(aes(y = NewCasesPerCap), col = NA, fill = "#F5B8B5") +  
+  geom_line(aes(y = roll7PerCap), col = "darkred", size = 1) +  
+  theme_bw() +  
+  labs(title = paste("New Daily COVID-19 Case Count and 7 Day Rolling Average"),subtitle = "Adjusted Per Capita", x= "Date", y= "Case Count") + 
+  facet_wrap(~state)+
+  ggsave(plot = last_plot(), file= "../img/NYTIMEScovidPerCap.png")
+nyTimes02
+```
+
+##### Results: Scaling COVID-19 cases based on the respective state population makes the relative amount of cases appear to be less severe in some states and more severe in others. This occurs because we are comparing only raw case data values. California, a highly populated state is likely to have more cases than Lousiana, a less populated state. When state cases are adjusted for population, using cases per capita the relative proportion of people within each state contracting COVID-19 becomes more clear. 
+
+
+##### Question 3: Exploring spatial data
+```{r,warning=FALSE,message=FALSE}
+#read in county spatial data
+counties = read_csv("../data/county-centroids.csv")
+
+#Join to COVID-19 Data
+#get daily cumulative cases
+#find weighted mean
+covidSpatial<-inner_join(covid,counties,by = "fips") %>%  
+  group_by(date) %>% 
+  summarise(wmX= sum(LON*cases)/sum(cases),wmY= sum(LAT*cases)/sum(cases),cases=sum(cases)) %>% 
+  mutate(month=format(date,"%m"))
+
+
+#Create weighted mean plot
+weightedMeanPlot<- ggplot(data = covidSpatial)+
+  borders("state",fill="light gray", colour = "light blue")+
+  scale_color_viridis_d()+
+  geom_point(aes(x=wmX, y=wmY, color= month))+
+  theme_linedraw()+
+  labs(color= "month",
+       size = "Cases (1,000,000)",
+       x="Longitude",
+       y="Latitude",
+       title = "Weighted Mean Center of COVID-19 Outbreak in the US",
+       caption = "NY Times Data")+
+      ggsave(plot = last_plot(), file= "../img/COVIDweightedMean.png")
+
+weightedMeanPlot
+```
+
+##### Results: The movement of the weighted mean center of COVID-19 cases in the United States moves west/southwest over the progression of the year 2020. This is inline with case reportings as the virus hit the east coast, NYC in particular, very hard in the beginning then spread west to almost all heavily populated cities. 

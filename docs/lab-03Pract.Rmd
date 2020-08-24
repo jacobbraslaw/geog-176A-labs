@@ -1,0 +1,77 @@
+---
+title: "Geography 176A"
+author: "[Jacob Braslaw](https://jacobbraslaw.github.io/)"
+subtitle: "Lab 03: Distances and Projections"
+date: "8/17/2020"
+output: html_document
+---
+```{r, results="hide", echo=TRUE, include=FALSE}
+library(tidyverse)
+```
+
+
+```{r, results="hide", echo=TRUE, include=FALSE}
+library(units)
+library(sf)
+library(ggrepel)
+
+#data
+library(USAboundaries)
+library(rnaturalearthdata)
+
+library(knitr)
+library(gghighlight)
+
+```
+
+```{r}
+region = data.frame(region= state.region,
+          state_name = state.name)
+south = USAboundaries::us_states() %>% 
+  right_join(region,by = "state_name") %>% 
+  filter((region== "South"))
+
+
+
+plot(south['aland'])
+
+cities = readr::read_csv("../data/uscities.csv") %>% 
+  st_as_sf(coords = c("lng", "lat"), crs = 4326) 
+  st_filter(south, .predicate = st_intersects) 
+cities
+
+
+plot(south$geometry)
+
+plot(cities$geometry ,add= TRUE, pch = 16, cex = 0.1, col = "light blue")
+
+south_c <- st_combine(south) %>% 
+  st_cast("MULTILINESTRING")
+
+
+south_c= st_transform(south_c,5070)
+cities= st_transform(cities,5070)
+
+sx<- st_distance(cities,south_c)
+
+cities<- cities %>% 
+  mutate(dist_to_state = st_distance(cities, south_c), dist_to_state = units::set_units(dist_to_state, "km"),
+                                                                                  
+                                                                                  dist_to_state=units::drop_units(dist_to_state))
+
+ggplot()+
+  geom_sf(data = south_c)+
+  geom_sf(data = cities, aes(col=dist_to_state), size =0.1)+
+  geom_sf(data= big_cities)+
+  scale_color_gradient(low = "gray", high="red")+
+  ggthemes::theme_map()+
+  ggrepel::geom_label_repel(data = big_cities,aes(label=city, geometry=geometry), stat = "sf coordinates", size= 4)
+
+#big_cities = cities %>% 
+  #group_by(state_name) %>% 
+ # slice_max(population, n=1)
+
+install.packages("ggrepel")
+install.packages("gghighlight")
+```
+
