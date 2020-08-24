@@ -49,9 +49,8 @@ CONUS<- USAboundaries::us_states(resolution = "low") %>%
 #1.3  Get boundary for Mexico, US, Canada
 boundary<- rnaturalearthdata::countries110 %>% 
   st_as_sf(crs=4269) %>% 
-  filter(sovereignt %in% c("United States of America", "Canada", "Mexico"))%>% 
-  st_transform(eqdc) 
-boundary
+  filter(sovereignt %in% c("United States of America", "Canada", "Mexico"))%>%   st_transform(eqdc) 
+
 
 #1.4 Get cities locations
 cities<- readr::read_csv("../data/uscities.csv") %>% 
@@ -64,13 +63,13 @@ cities<- readr::read_csv("../data/uscities.csv") %>%
 ##### Question 2 
 ###### finding distances
 
-```{r}
+```{r, warning=FALSE}
 #need to union the CONUS data to find distance to the border of each city
 #2.1 find distance from all cities to the border
 CONUS_c<- CONUS %>% 
   st_union() %>% 
   st_cast("MULTILINESTRING") 
-  CONUS_c
+ 
   
 #find the distance from the unions CONUS to each city
   DisttoBorder<- cities %>% 
@@ -99,7 +98,7 @@ CONUS_c<- CONUS %>%
     slice_max(StateBordDist, n=5)
   
 #table of the 5 cities furthest from the State border they are in
-   knitr::kable(DistToStateBord ,caption = "5 Cities Furthest From Respective State Border", col.names = c("City", "State", "Distance(km)"), format.args = list(big.mark = ","))
+   knitr::kable(DistToStateBord ,caption = "5 Cities Furthest From A State Border", col.names = c("City", "State", "Distance(km)"), format.args = list(big.mark = ","))
    
    
 #2.3 
