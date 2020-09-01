@@ -6,7 +6,7 @@ date: "8/26/2020"
 output: html_document
 ---
 
-```{r}
+```{r, echo=FALSE}
 library(sf)
 library(tidyverse)
 library(rmapshaper)
@@ -20,7 +20,7 @@ library(leafem)
 ### Question 1
 #### Here we will prepare five tesselated surfaces from CONUS and write a function to plot them in a descriptive way.
 
-```{r}
+```{r, warning=FALSE}
 #1.1 Get CONUS is equal area
 counties <- USAboundaries::us_counties() 
 states <- USAboundaries::us_states() %>% 
@@ -181,7 +181,7 @@ MasterSum<- bind_rows(CountySum<- AreaMaker(CONUS, "County"),
  #Given the mean area is larger than the actual county sizes for hex Grid and square grid the this would likely affect the number of cities or county numbers within the tesslation. As shown in lecture if we were to create a map of cities the color grid indicating the number of cities would look different in each type of map. Another problem is the number of counties, the values of observations is not consistent within each feature because the size of the polygons differ
 ```
 
-Question 3
+### Question 3
 ```{r, warning=FALSE}
 #3.1 read in the data, remove na values, set to sf and make it the right proj coord system
 damn<- read_excel("../data/NID2019_U.xlsx") 
