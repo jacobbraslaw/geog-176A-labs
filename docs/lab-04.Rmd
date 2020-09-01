@@ -1,0 +1,382 @@
+---
+title: "Geography 176A"
+author: "[Jacob Braslaw](https://jacobbraslaw.github.io/)"
+subtitle: "Lab 04: Tessalations"
+date: "8/26/2020"
+output: html_document
+---
+
+```{r}
+library(sf)
+library(tidyverse)
+library(rmapshaper)
+source("lab4.R")
+library(units)
+library(readxl)
+library(leaflet)
+library(leafem)
+```
+
+### Question 1
+#### Here we will prepare five tesselated surfaces from CONUS and write a function to plot them in a descriptive way.
+
+```{r}
+#1.1 Get CONUS is equal area
+counties <- USAboundaries::us_counties() 
+states <- USAboundaries::us_states() %>% 
+  filter(!name %in% c("Hawaii", "Alaska", "Puerto Rico")) %>%  st_transform(5070) %>% 
+  mutate(id= 1:n())
+
+CONUS<- counties %>% 
+  filter(!state_name %in% c("Hawaii", "Alaska", "Puerto Rico")) %>%  st_transform(5070) %>% 
+  mutate(id= 1:n())
+
+
+#1.2 get county centroids
+county_centroid<- CONUS %>% 
+  st_centroid(geoid) %>% 
+  st_union %>%     
+  st_cast("MULTIPOINT")    #we use st cast for each one to keep simple topology
+
+
+#1.3 tesslations Voronoi
+voronoi<- county_centroid %>% 
+  st_voronoi() %>% 
+  st_cast() %>% 
+  st_as_sf() %>% 
+  mutate(id= 1:n())
+
+
+triangulate<- county_centroid %>% 
+  st_triangulate() %>% 
+  st_cast() %>%  
+  st_as_sf() %>% 
+  mutate(id= 1:n())
+
+
+#grid over county object doesnt have to be the unioned multi point
+  grid<- CONUS %>% 
+    st_make_grid(n=70) %>% 
+    st_cast() %>%
+    st_as_sf() %>% 
+    mutate(id= 1:n())
+  
+
+# hexagonal grid
+  hex_grid<- CONUS %>% 
+    st_make_grid(n=70, square = FALSE) %>% 
+    st_cast() %>% 
+    st_as_sf() %>% 
+    mutate(id=1:n())
+  
+  
+#1.4 plot tesslations within only CONUS
+  CONUS_vor<- st_intersection(voronoi, st_union(CONUS)) 
+    
+
+#plot intersection triangulate
+   CONUS_tri<- st_intersection(triangulate, st_union(CONUS)) 
+    
+  
+#1.5 simplifications
+   CONUS_simple<- ms_simplify(CONUS, keep = 0.1)
+   
+  mapview::npts(CONUS_simple)
+    mapview::npts(CONUS) 
+    
+  #removed 27,982 points allows much faster calculations
+  
+    #redo croping
+  CONUS_tri_simple<- st_intersection(triangulate, st_union(CONUS_simple)) 
+  
+  CONUS_vor_simple<- st_intersection(voronoi, st_union(CONUS_simple)) 
+  
+#1.6 create a function 
+  
+  ###ahh its 5:55 to get the assignment in i cant finish all the specfications :'(
+  makeGGPlot = function(data, title) {
+  
+  ggplot()+
+  geom_sf(data = data, fill= "white", col= "navy blue", size= 0.2)+
+  labs(title= title, caption = paste("Number of features in tessalation", length(data$id)))+
+      theme_void()
+  }
+  
+  #1.7 plot 5 tesslations with function
+  
+  #centroid ploit
+makeGGPlot(county_centroid, "US Map: Geographical Center of County")
+ #simplified vornoi plot
+makeGGPlot(CONUS_vor_simple, "US Map: Vornoi Polygons of County Centroids")
+ #simplified triagnulation plot
+makeGGPlot(CONUS_tri_simple, "US Map: Vornoi Polygons of County Centroids")
+ #conus grid
+makeGGPlot(grid, "US Map: Square Grid")
+ #conus hex grid
+makeGGPlot(hex_grid, "US Map: Hexagonal Grid")
+
+
+```
+
+### Question 2
+#### write a function that summarizes our tessalated surfaces
+
+```{r}
+AreaMaker2<- function(data, title){
+data %>%
+ mutate(area= st_area(data) %>% 
+ set_units("km^2") %>% 
+ drop_units(),
+ type = title) %>% 
+ st_drop_geometry() %>% 
+ mutate(mean= mean(area)) %>% 
+ mutate(std= sd(area)) %>% 
+ mutate(totalArea= sum(area))
+
+}
+
+
+
+
+AreaMaker<- function(data, title){
+areas = drop_units(set_units(st_area(data), "km2"))
+data.frame(type = title, num = length(areas), 
+           mean = mean(areas), sd = sd(areas), totArea = sum(areas))
+}
+
+
+
+
+#2.2 use function to summarize each tessalation and original counties
+
+# simplified voronoi polyogon
+VorSum<- AreaMaker(CONUS_vor_simple,"Voronoi")
+
+# simplified triangulate polygon
+TriSum<- AreaMaker(CONUS_vor_simple, "Triangulate")
+
+# grid
+GridSum<- AreaMaker(grid,"Grid")
+
+#hexagonal 
+HexSum<- AreaMaker(hex_grid, "Hexagonal")
+
+#original county
+CountySum<- AreaMaker(CONUS, "County")
+
+
+
+#2.3 Bind Rows
+MasterSum<- bind_rows(CountySum<- AreaMaker(CONUS, "County"),
+               HexSum<- AreaMaker(hex_grid, "Hexagonal"),
+               GridSum<- AreaMaker(grid,"Grid"),
+               TriSum<- AreaMaker(CONUS_vor_simple, "Triangulate"),
+               VorSum<- AreaMaker(CONUS_vor_simple,"Voronoi"))
+
+#2.4
+ knitr::kable(MasterSum,caption = "Tesslations and Their Attributes", col.names = c("Map Type", "Number of Features", "Mean Area Per Feature", "Standard Deviation", "Total Area"), format.args = list(big.mark = ","))
+ 
+#2.5 Comment on the traits of each tessellation. Be specific about how these traits might impact the results of a point-in-polygon analysis in the contexts of the modifiable areal unit problem and with respect computational requirements.
+ 
+ #Given the mean area is larger than the actual county sizes for hex Grid and square grid the this would likely affect the number of cities or county numbers within the tesslation. As shown in lecture if we were to create a map of cities the color grid indicating the number of cities would look different in each type of map. Another problem is the number of counties, the values of observations is not consistent within each feature because the size of the polygons differ
+```
+
+Question 3
+```{r, warning=FALSE}
+#3.1 read in the data, remove na values, set to sf and make it the right proj coord system
+damn<- read_excel("../data/NID2019_U.xlsx") 
+  
+#when taking some that that is alredy in lat lon have to tranform it to crs
+dam<- damn %>% 
+  filter(!is.na(LATITUDE)) %>% 
+  st_as_sf(coords = c("LONGITUDE", "LATITUDE"), crs = 4326) %>% 
+  st_transform(5070)
+
+
+#3.2 make a PIP function
+
+point_in_polygon = function(points, polygon, group){
+      st_join(polygon, points) %>%
+        st_drop_geometry() %>%
+        count(get(group)) %>%
+        setNames(c(group, "n")) %>%
+        left_join(polygon, by = group) %>%
+        st_as_sf()
+}
+
+
+#3.3 apply the point and polygon function to the damns and surfaces
+
+#counties
+CONUSDam<- point_in_polygon(dam,CONUS,"id")
+
+#grid
+GridDam <- point_in_polygon(dam, grid , "id")
+
+#hexagonal grid
+HexGridDam<- point_in_polygon(dam, hex_grid , "id")
+
+#simplified vornoi polygons
+VornoiDam<-  point_in_polygon(dam, CONUS_vor_simple , "id")
+
+#simplified triangulation polygons
+TriDam <- point_in_polygon(dam, CONUS_tri_simple , "id")
+
+
+# 3.4 make a new function that extends your previous plotting function
+  
+plot_dam = function(data, title ){
+    makeGGPlot(data, title)+
+    scale_fill_viridis_c("Dam Count")+
+    geom_sf(data= data, aes(fill= n), col= NA, alpha=0.9)+
+     labs(caption = paste("Number of Dams in tessalation", sum(data$n)))+
+    theme_void()
+}
+
+#3.5 plot each of the 5 surfaces
+
+CONUSplot<- plot_dam(CONUSDam, "US County Lines Dam Map")
+
+GridPlot<- plot_dam(GridDam, "US Grid Coverage Dam Map")
+
+HexGridPlot<- plot_dam(HexGridDam, "US Hex Grid Coverage Dam Map")
+
+VoronoiPlot<- plot_dam(VornoiDam, "US Vornoi Polygon Dam Map")
+
+TriangulatePlot<- plot_dam(TriDam, "US Triangulation Polygon Dam Map")
+
+CONUSplot
+GridPlot
+HexGridPlot
+VoronoiPlot
+TriangulatePlot
+
+#3.6 Comment on the influence of the tessellated surface in the visualization of point counts. How does this related to the MAUP problem. Moving forward you will only use one tessellation, which will you chose and why?
+
+#the surfaces that are more similar to county lines (voronoi and triangulation) look related because they are based on centroids of the county. If I'm interested in the doing analysis based on counties I should choose from one of these three options. The two grid surfaces are do not take into account the size of the county only the dams per area because each grid cell is the same. If I was interested in dams per area, then I would use grid of hexagonal grid.  After looking through question for the surface that I think is most fit for this problem is is the county grid because people have a more intuitive understanding with county lines than the other type of surfaces made. 
+```
+
+### Question 4
+
+```{r}
+#there's no easy way to see what dam serves which purpose. To overcome this we have to separate the concatenated string
+
+#build NID claasifier
+abbr<- c("I","H","C","N","S","R","P", "F", "D", "T", "G", "O")
+purpose<- c("Irrigation","Hydroelectric","Flood Control", "Navigation", "Water Supply", "Recreation", "Fire Protection", "Fish and Wildlife", "Debris Control", "Tailings", "Grade Stabilization", "Other")
+nid_classifier<- data.frame(abbr,purpose)
+
+dam_freq <- strsplit(dam$PURPOSES, split = "") %>%
+  unlist() %>% 
+  table() %>% 
+  as.data.frame() %>% 
+  setNames(c("abbr", "count")) %>% 
+  left_join(nid_classifier) %>% 
+  mutate(lab = paste0(purpose, "\n(", abbr, ")"))
+
+#make sure to plot but figure that out later
+
+
+
+#4.1 create point in polygon counts for at least 4 of the features above
+
+#make subset for fire protection dams
+FireProtection<-  dam %>% 
+  mutate(fireProtect= grepl("P", PURPOSES)) %>% 
+  filter(fireProtect== "TRUE")
+
+
+Hydro<- dam %>% 
+  mutate(Hydro = grepl("H", PURPOSES)) %>% 
+  filter(Hydro== "TRUE")
+
+Recreation<-  dam %>% 
+  mutate(Rec= grepl("R", PURPOSES)) %>% 
+  filter(Rec== "TRUE")
+
+Irrigation<-  dam %>% 
+  mutate(Irrigation= grepl("I", PURPOSES)) %>% 
+  filter(Irrigation== "TRUE")
+
+#I chose fire protection because as fire frequency may be changing in counties they may not be posstioned well for fire hotspots. I chose hydro because I was curious where hydro electricity is being generated in the US. Recreation, I thought it would be interesting to see how many lakes for "boating" are man made. Irrigation is hugely important and have heard about a lot of US water rights along the colorado and mississippi and wanted to see it visually. 
+
+
+
+# replot with the new dam feature to get PIP
+
+CONUSFireDam<- point_in_polygon(FireProtection, CONUS, "id") %>% 
+  mutate(CountAvg= mean(n)) %>% 
+  mutate(CountSTD = sd(n)) %>% 
+  mutate(OneSDAway = ifelse(CountSTD+CountAvg< n, "True", "False"))
+
+CONUSHydroDam<- point_in_polygon(Hydro, CONUS, "id")%>% 
+  mutate(CountAvg= mean(n)) %>% 
+  mutate(CountSTD = sd(n))%>% 
+  mutate(OneSDAway = ifelse(CountSTD+CountAvg< n, "True", "False"))
+
+CONUSRecreationDam<- point_in_polygon(Recreation, CONUS, "id")%>% 
+  mutate(CountAvg= mean(n)) %>% 
+  mutate(CountSTD = sd(n))%>% 
+  mutate(OneSDAway = ifelse(CountSTD+CountAvg< n, "True", "False"))
+
+CONUSIrrigation<- point_in_polygon(Irrigation, CONUS, "id")%>% 
+  mutate(CountAvg= mean(n)) %>% 
+  mutate(CountSTD = sd(n))%>% 
+  mutate(OneSDAway = ifelse(CountSTD+CountAvg< n, "True", "False"))
+
+
+# 4.2 now use plot function from these to plot the counts but only highlight those with 1 sd from mean in the set
+
+FireDamMap<- plot_dam(CONUSFireDam, "US Map of Fire Protection Dams Per County")+
+  labs(subtitle = "Counties Highlighted are one SD higher than the mean number of dams per county across the US")+
+  gghighlight::gghighlight(n>(CountSTD+CountAvg))+
+  geom_sf(data=CONUS, fill=NA, size=0.1, col= "Navy Blue")
+
+
+HydroDamMap<- plot_dam(CONUSHydroDam, "US Map of Hydroelectric Dams Per County")+
+  gghighlight::gghighlight(n>(CountSTD+CountAvg))+
+    labs(subtitle = "Counties Highlighted are one SD higher than the mean number of dams per county across the US")+
+  gghighlight::gghighlight(n>(CountSTD+CountAvg))+
+  geom_sf(data=CONUS, fill=NA, size=0.1, col= "Navy Blue")
+
+RecreationDamMap<- plot_dam(CONUSRecreationDam, "US Map of Recreational Dams Per County")+
+  gghighlight::gghighlight(n>(CountSTD+CountAvg))+
+    labs(subtitle = "Counties Highlighted are one SD higher than the mean number of dams per county across the US")+
+  gghighlight::gghighlight(n>(CountSTD+CountAvg))+
+  geom_sf(data=CONUS, fill=NA, size=0.1, col= "Navy Blue")
+
+IrrigationDamMap<- plot_dam(CONUSIrrigation, "US Map of Irrigation Dams Per County")+
+  gghighlight::gghighlight(n>(CountSTD+CountAvg))+
+    labs(subtitle = "Counties Highlighted are one SD higher than the mean number of dams per county across the US")+
+  gghighlight::gghighlight(n>(CountSTD+CountAvg))+
+  geom_sf(data=CONUS, fill=NA, size=0.1, col= "Navy Blue")
+
+FireDamMap
+HydroDamMap
+RecreationDamMap
+IrrigationDamMap
+
+
+#extra credit
+MissRiver<- read_sf("../data/majorrivers_0_0") %>% 
+  filter(SYSTEM== "Mississippi") 
+
+#find the largest storage dam in each state 
+#cant find the state name for the dam
+LargestDams<- st_filter(dam, states, .predicate = st_within) %>%   
+  filter(HAZARD== "H") %>% 
+  group_by(STATE) %>% 
+  slice_max(NID_STORAGE) %>% 
+  st_transform(4326) %>%   
+  select(RECORDID,DAM_NAME, NID_STORAGE, YEAR_COMPLETED, PURPOSES, HAZARD, STATE )
+
+#make leaflet map
+leaflet(data = LargestDams) %>% 
+  setView(lng=-100, lat=40.0, zoom = 4) %>% 
+  addProviderTiles(providers$CartoDB) %>% 
+  addCircleMarkers(color = NA ,radius = (LargestDams$NID_STORAGE/1500000),  fillColor = "red", fillOpacity = 0.4, popup = leafpop::popupTable(st_drop_geometry( LargestDams[,2:5]), feature.id= FALSE, row.numbers = FALSE)) %>% 
+  addPolylines(data = MissRiver) 
+  
+
+```
+
