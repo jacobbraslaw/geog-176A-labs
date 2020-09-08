@@ -1,0 +1,299 @@
+---
+title: "Geography 176A"
+author: "[Jacob Braslaw](https://jacobbraslaw.github.io/)"
+subtitle: "Lab 05: Raster and Remote Sensing"
+date: "8/26/2020"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(raster) # Raster Data handling
+library(tidyverse) # Data Manipulation
+library(getlandsat) # keyless Landsat data (2013-2017)
+library(sf) # Vector data processing
+library(mapview)
+library(osmdata)
+library(stats)
+
+```
+
+### Question 1
+First get area of interest, look at 5km buffer around Palo, Iowa.
+```{r}
+cities<- read_csv("../data/uscities.csv") 
+
+# palo bbox will be the AOI
+palo<- cities %>% 
+  filter(city== "Palo") %>% 
+  st_as_sf(coords= c("lng","lat"), crs =4326) %>% 
+  st_transform(5070) %>% 
+  st_buffer(5000) %>% 
+  st_bbox() %>% 
+  st_as_sfc() %>% 
+  st_as_sf()
+
+bbwgs<- palo %>% 
+  st_transform(4326)
+bb = st_bbox(bbwgs)
+
+```
+
+### Question 2 get satelite image in correct region
+```{r}
+# work done in seperate r script to pull from land sat imagery
+# region I want
+meta= read_csv(file = "../data/palo_flood.csv")
+
+meta$download_url
+
+#want to pull information from the webpage
+lsat_scene_files( meta$download_url)
+
+#only interested in the first 6 bands
+files<- lsat_scene_files(meta$download_url) %>% 
+  filter(grepl(paste0("B", 1:6, ".TIF$", collapse = "|"), file)) %>% 
+  arrange(file) %>% 
+  pull(file)
+
+
+st = sapply(files, lsat_image)
+
+b = stack(st) %>% 
+   setNames(c(paste0("band", 1:6)))
+
+#2.3 The dimensions of the stacked image are 7811 rows by 7681 columns, the cell resolution is 30m and the CRS is wgs84(4326)
+
+#want to make sure that AOI is in the same CRS as the raster stack
+
+crop<- bbwgs %>% st_transform(crs(b))
+
+#crop the big raster stack (b) by the crop box we want to get raster of region interested
+r<- crop(b,crop)
+
+
+# question 2.4: dimensions of the extent are 340x346, resolution is 30m and CRS is still WGS84
+
+```
+
+### Question 3 
+```{r}
+#rename the bands given their values
+r<-r %>%  setNames(c("coastal", "Blue","Green", "Red", "Near IR", "Swir1"))
+
+par(mfrow= c(2,2))
+#plot 4 combinations of RGB
+plotRGB(r, r=4,g=3,b=2)  #natural color
+plotRGB(r, r=5, g=4,b=3) #color infared
+plotRGB(r, r=5, g=6,b=4) #water focus
+plotRGB(r, r=6, g=5,b=2) # seperate ag from water
+
+#3.2 strech the images above
+
+plotRGB(r, r=4,g=3,b=2, stretch= "lin") #natural color
+plotRGB(r, r=5, g=4,b=3, stretch= "lin") #color infared
+plotRGB(r, r=5, g=6,b=4, stretch= "lin") #water focus
+plotRGB(r, r=6, g=5,b=2, stretch= "lin") # seperate ag from water
+
+```
+
+### Question 4
+```{r}
+NDVI<- (r$Near.IR-r$Red)/(r$Near.IR+r$Red) #water: <0
+
+NDWI<- (r$Green-r$Near.IR)/(r$Green+r$Near.IR) #water: >0
+
+MNDWI<- (r$Green-r$Swir1)/(r$Green+r$Swir1) #water: >0
+
+WRI<- (r$Green+r$Red)/(r$Near.IR+r$Swir1) #water: >1
+
+SWI<- (1)/(sqrt(r$Blue-r$Near.IR)) #water: <5
+
+rast_index<- stack(NDVI,NDWI,MNDWI,WRI,SWI) %>% 
+  setNames(c("NDVI","NDWI","MNDWI","WRI","SWI"))
+
+pallete<- colorRampPalette(c("blue", "white", "red"))(256)
+plot(rast_index, col=pallete)
+
+# The 5 images are similar in that the water body features are easily distinguishable but for plot NDVI water is blue and all the others water is red. Also the focus of the "square farmland" is highlighted more in some regions that just the natural green. For example in NDVI it does a good job showing the green vegitation which are the 0.4~0.5 values. it looks to be the inverse image of NDWI and if you look at the equation it almost is except replace red with green!
+
+#question 4.2 extract the flood extents
+
+#write a threshold func to seperate the water from land
+NDVI_threshold<- function(x){ifelse(x<0,1,0)}
+
+NDWI_MNDWI_threshold<- function(x){ifelse(x>0,1,0)}
+
+WRI_threshold<- function(x){ifelse(x>1,1,0)}
+
+SWI_threshold<- function(x){ifelse(x<5,1,0)}
+
+#make new plots of threshold
+NDVI_flood= calc(NDVI,NDVI_threshold) 
+  NDVI_flood[is.na(NDVI_flood)] = 0
+
+NDWI_flood= calc(NDWI,NDWI_MNDWI_threshold)
+  NDWI_flood[is.na(NDWI_flood)] = 0
+
+MNDWI_flood= calc(MNDWI, NDWI_MNDWI_threshold)
+  MNDWI_flood[is.na(MNDWI_flood)] = 0
+  
+WRI_flood=calc(WRI,WRI_threshold)
+ WRI_flood[is.na(WRI_flood)] = 0
+ 
+SWI_flood= calc(SWI,SWI_threshold)
+  SWI_flood[is.na(SWI_flood)] = 0
+  
+#stack all the flood layers together
+flood_pallete<- colorRampPalette(c("white", "blue"))(2)
+ 
+
+flood_stack<- stack(NDVI_flood,NDWI_flood,MNDWI_flood,WRI_flood,SWI_flood) %>%  setNames(c("NDVI Flood", "NDWI Flood", "MNDWI Flood", "WRI Flood", "SWI Flood"))
+
+    
+plot(flood_stack, col= flood_pallete)
+
+```
+
+### Question 5
+```{r}
+set.seed(09072020)
+
+dim(flood_stack)
+
+#the dimensions tell me that it is a 340 row by 346 column with 5 different layers. It tells me that the data is extracted in a 5 dimensional matrix that gives values on cell by cell basis for each cell in all 5 dimensions.
+
+flood_stack<-flood_stack %>% 
+  na.omit()
+
+flood_values<- getValues(flood_stack)
+
+idx= which(!is.na(values)) #shows index for every cell that has a value
+
+
+
+#kmeans 12
+k12<- kmeans(flood_values, 12, iter.max = 100)
+
+
+# kmeans 6
+k6<- kmeans(flood_values,6,iter.max = 100)
+
+
+
+#kmeans3
+k3<- kmeans(flood_values,3, iter.max = 100)
+
+#create new rasters to see how the map changes.
+kmeans_raster12 = flood_stack$NDVI.Flood
+kmeans_raster6 = flood_stack$NDVI.Flood
+kmeans_raster3 = flood_stack$NDVI.Flood
+
+
+values(kmeans_raster12)= k12$cluster
+plot(kmeans_raster12,col = RColorBrewer::brewer.pal(12, "Spectral"))
+
+values(kmeans_raster6)= k6$cluster
+plot(kmeans_raster6,col = RColorBrewer::brewer.pal(6, "Spectral"))
+
+values(kmeans_raster3)= k3$cluster
+plot(kmeans_raster3,col = RColorBrewer::brewer.pal(3, "Spectral"))
+
+
+```
+
+### Question 5.3
+Build a table to find out what k means groups are water
+```{r}
+#build a table and put the values from one of the rasters and with one of the kmeans, since the raster were 1/0 the kmeans should be easy to compare them to.
+kmeans_raster6
+
+table(getValues(NDVI_flood), getValues(kmeans_raster6))
+
+
+which.max(getValues(kmeans_raster6))# returns the index of the maximum value in a vector... I am not sure what to do with this but I know that the value that intersects the most is 1
+which.min(getValues(kmeans_raster6))
+
+#make threshold function
+kmeans_threshold<- function(x){ifelse(x==3,1,0)}
+
+
+kmean6_flood=calc(kmeans_raster6,kmeans_threshold)
+plot(kmean6_flood)
+
+flood_stack<- stack(NDVI_flood,NDWI_flood,MNDWI_flood,WRI_flood,SWI_flood, kmean6_flood) %>%  setNames(c("NDVI Flood", "NDWI Flood", "MNDWI Flood", "WRI Flood", "SWI Flood", "Kmeans Flood"))
+
+plot(flood_stack, col=flood_pallete)
+
+```
+
+### Question 6
+```{r, warning=FALSE}
+#to find the flooded area need to find the number of cells than can multiply it by 90m^2
+#NDVI flood
+NDVIcellCount<-NDVI_flood %>% 
+cellStats(sum)*90
+
+NDWIcellCount<- NDWI_flood %>% 
+  cellStats(sum)*90
+
+MNDWIcellCount<- MNDWI_flood %>% 
+  cellStats(sum)*90
+
+WRIcellCount<- WRI_flood %>% 
+  cellStats(sum)*90
+
+SWIcellCount<- SWI_flood %>% 
+  cellStats(sum)*90
+
+KMEANScellCount<- kmean6_flood %>% 
+  cellStats(sum)*90
+
+CountTable<- data.frame(NDVIcellCount,NDWIcellCount,MNDWIcellCount,WRIcellCount,SWIcellCount,KMEANScellCount)
+
+knitr::kable(CountTable, caption= "Area M^2^ of each type of raster method", col.names=c("NDVI Area","NDWI Area", "MNDWI Area", "WRI ARea", "SWI Area","Kmeans Area"))
+
+#summary entire stack to look at how common the value of the cell is
+
+datasum <- calc(flood_stack,sum) 
+
+#plot
+plot(datasum, col= blues9)
+
+#remove NA
+dataSumThresh<- function(x){ifelse(x==0,NA,x)}
+datasum1<- calc(datasum,dataSumThresh)
+
+#map the new raster
+mapview(datasum1)
+
+#why are some cell values not even integers?
+#i really have no idea but to me it looks as if a smoothing function was used, (focal) to make the map view continous data when it should be discrete values. This resulted in taking the mean of the values in the region... that is the only reason i can think of.
+```
+
+### Extra Credit
+
+```{r}
+#look in Palo, Iowa for this drone image location
+
+#make a point of that raster
+#stuck way too late at night couldnt figure out how so I added "flood" to cities csv bc I know those are points
+
+flood<- cities %>% 
+  filter(city== "flood") %>% 
+  st_as_sf(coords= c("lng","lat"), crs =4326) %>% 
+  st_transform(crs = crs(NDVI_flood))
+
+
+#exrract values from flood_stack
+
+raster::extract(flood_stack,flood)
+
+#given that I had a value of 1 for each of them it shows that the all picked up this location
+
+# a way to check will be that my datasum should have a value of 6 at this location
+raster::extract(datasum1,flood)
+#which is does showing they all picked up this location!! :)
+
+
+```
+
