@@ -1,0 +1,848 @@
+---
+title: "Do MLB Players Earn Their Salary?"
+author: "[Jacob Braslaw](https://jacobbraslaw.github.io/)"
+subtitle: "EEMB 146 Final Project"
+date: "8/26/2020"
+output: html_document
+---
+
+```{r, results='hide', echo=FALSE, include=FALSE}
+#load libraries
+library(tidyverse)
+library(car)
+library(psych)
+library(effects)
+library(knitr)
+library(Lahman)
+library(emmeans)
+```
+
+```{r, include=FALSE, echo=FALSE}
+#initial data loading
+#load in mlb salaries, filter to 2016
+ load('../data/Salaries.RData') 
+
+Salary16<- Salaries %>% 
+filter(yearID==2016)  
+
+#load in mlb 2016 batting statistics 
+ load('../data/Batting.RData')
+ 
+Stats16x<- Batting %>% 
+  filter(yearID==2016) %>% 
+  filter(AB > 200) %>% 
+  mutate(BA = (H/AB)) 
+
+#table joins
+Stats16 <- left_join(Stats16x, Salary16, by = "playerID")  %>% 
+  na.omit(salary)
+#now have data frame with batting stats and salaries and variables I am intrested in
+```
+
+```{r, warning=FALSE, include=FALSE}
+#Initial visualization of the data, first look at paired plot for all variable that I will be analyzing
+
+#given I dont want extraneous information in my plots i will simplify the data frame further to keep only Salary, BA, HR, RBI but we also need to adjust per player, so I will make it HR per 100 at bats (ab), and RBI per 100 at bats.
+StatsSimple<- Stats16 %>%
+  mutate(HRper100= (HR/AB)*100) %>% 
+  mutate(RBIper100= (RBI/AB)*100) %>% 
+  select(HRper100,RBIper100,BA,salary, lgID.y)
+
+pairs.panels(StatsSimple[1:3], density = TRUE, cor = TRUE)
+```
+
+```{r, warning=FALSE, include=FALSE}
+# again I will use statsSimple because it contains only the variables I am looking to analyze. 
+# split the data into high and low salary players, high >1,000,000$/yr low <= 1,000,000$/yr
+StatsSimple<- StatsSimple %>%
+  mutate(SalaryCaliber = ifelse(salary > 1000000, "High", "Low")) %>%  
+  mutate(logHR= log(HRper100+0.01)) 
+```
+
+```{r, warning= FALSE, include=FALSE}
+LowSalary<- StatsSimple %>% 
+  filter(SalaryCaliber== "Low")
+
+HighSalary<- StatsSimple %>% 
+  filter(SalaryCaliber== "High")
+
+NL<- StatsSimple %>% 
+  filter(lgID.y== "NL")
+
+AL<- StatsSimple %>% 
+  filter(lgID.y== "AL")
+```
+
+### Abstract
+ Baseball offensive hitting statistics were used to determine if higher paid players are actually more offensively productive. Given we are in the golden age of statistical analysis in baseball, what team owner wouldn't want to know if they are over paying their players? This project first found out the distribution and variances of all numerical variables to see what kind of statistical analysis could be performed. Parametric, non-paramertric, generalized linear models, and predictive analysis were used. From these tools it was found that yes, more productive offensive players were paid more in 2016. The old baseball saying, the money lies in the RBI's, was the most significant conclusion found in this project.
+ 
+### Introduction
+In the age of modern sabermetrics baseball, there are ample datasets to choose from to gather data. For this analysis I pulled data from [Lahmans Baseball Git Hub Site](https://github.com/cdalzell/Lahman), maintained by Chris Dalzell. The Lehman repository had two main R files needed for this project. The batting data and salaries data. These two sets were joined to view salary and batting data in the same data frame. Batting variables that were viewed in this project are batting average(BA), Runs Batted In(RBI), and Home runs(HR). These three variables are the basis for all offensive evaluation metrics in baseball. 
+
+Every major league team puts high emphasis on efficiency, owners want to win as many games as possible with out over paying players for their productivity. Given this concern the basis of this project is to evaluate players productivity in relation to their earnings. Statistical analysis will be used to investigate the relationship between 2016 MLB players offensive productivity and their earnings for the same year. 
+
+Goals for this project are to discover the discrete individual relationship between earnings and BA, HR's, and RBI's. I also aim to find a model that can predict the salaries based on the variables BA, HR, and RBI. From this model we can see what is the strongest predictor than return to the original relationship tests to see if *that particular relationship* is a statistically significant. From these tests a conclusion can be made about whether players salaries are a good measure of offensive productivity (aka players earning their salaries). 
+
+*Hypothesis*
+
+H~0~: There is no relationship between the salary of 2016 MLB players with over 200 at bats and the offensive productivity of 2016 MLB players with over 200 at bats.
+
+H~a~: There is a relationship between the salary of 2016 MLB players with over 200 at bats and the offensive productivity of 2016 MLB players with over 200 at bats.
+
+
+
+### Exploratory Data Analysis
+
+From figure 1 it appears that for both categorical variables League and Salary, RBI per 100 at bats and batting average are normal. Home runs per 100 at bats does not look normal for Salary group and will be explored with further analysis in the next section, statistical methods.  All R code for the plots in this section are located in appendix section B.
+
+```{r warnings=FALSE, fig.show="hold", echo=FALSE, output=FALSE, fig.cap="Figure 1: A pairs.panels plot. This plot shows the relationship between each variable with a scatter plot on the lower triangle. There appears to be a linear relationship between HRper100 and RBIper100. There appears to be no clean linear or non-linear relationship bewteen HRper100 and BA. There is a slight linear relationship between RBIper100 and BA. The upper triangle of the plot shows the correlation coefficent, r. The r value for HRper100 and RBIper100 equals 0.80 indicating co-liniearity between the two variables. It appears that all three variables are normally distributed. "}
+
+pairs.panels(StatsSimple[1:3], density = TRUE, cor = TRUE)
+```
+
+```{r warnings=FALSE, fig.show="hold", echo=FALSE, output=FALSE, fig.cap= "Figure 2: Top row: Shows the box plot of HR per 100 at bats, RBI per 100 at bats, and batting average, grouped by players of low and high salaries. HR per 100 at shows spread of both groups roughly equal. The Low group has a smaller central tendency and indicates right skewed data. RBI per 100 shows one outlier in the high group and the spread is slightly less for Low group, niether indicate skewed data. Batting average for low and high group both have outliers on the low end, the spread and central tendency is smaller for Low group. Bottom Row: the spread and central tendency are very similar for all three variables when split by league. The American League(AL) has one outlier for RBI per 100 at bats, and the National League(NL) has one outlier for Batting Average."}
+
+par(mfrow= c(2,3))
+boxplot(HRper100~SalaryCaliber, data= StatsSimple, col="cyan", xlab="Salary Group", ylab="HR per 100 at bats")
+boxplot(RBIper100~SalaryCaliber, data= StatsSimple, col="cyan", xlab="Salary Group", ylab="RBI per 100 at bats")
+boxplot(BA~SalaryCaliber, data= StatsSimple, col="cyan", xlab="Salary Group", ylab="Batting Average")
+#boxplot of HR,RBI,BA by league
+
+boxplot(HRper100~lgID.y, data= StatsSimple, col="cornflowerblue", xlab= "League", ylab="HR per 100 at bats")
+boxplot(RBIper100~lgID.y, data= StatsSimple, col="cornflowerblue", xlab= "League", ylab= "RBI per 100 at bats")
+boxplot(BA~lgID.y, data= StatsSimple, col="cornflowerblue", xlab= "League", ylab= "Batting Average")
+
+```
+
+```{r warnings=FALSE, fig.show="hold", echo=FALSE, output=FALSE, fig.cap= "Figure 3: Box plot above showed skewed HRper100 data, to further visualize Homeruns per 100 at bats histograms have been made for another visual perspective. Histograms of MLB home runs broken up into the 2 categorical variables of the study, Salary and League. Low paid home runs exhibits right skew and does not look normal. Both National and American league homeruns exhibit right skew, more predominately in National League"}
+par(mfrow= c(2,1))
+#HR Low
+hist(LowSalary$HRper100, col="cyan", xlab="HR per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 Low Paid MLB HR")
+
+#HR High
+hist(HighSalary$HRper100, col="cyan", xlab="HR per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 High Paid MLB HR")
+
+
+#NL  HR
+ hist(NL$HRper100, col="cornflowerblue", xlab="HR per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 National League MLB HR")
+
+#AL HR
+hist(AL$HRper100, col="cornflowerblue", xlab="HR per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 American League MLB HR")
+
+```
+
+### Statistical Methods
+
+Manipulation of the data. As shown above in Fig1, Fig2, and Fig3 the home runs and RBI's are adjusted per 100 at bats. This adjustment was made because the spread between at bats varies from 200 to 672, naturally a person with same skills would hit more homeruns in 672 at bats than 200. This adjustment does not apply to batting average because it is inherently an average. Salary data was changed into binary values to make two groups. High (value = 1) is players paid about 1,000,000 US dollar, the low (value =0) is those paid less that or equal to 1,000,000 US dollars.  All code for statistical analysis can be found in appendix section C. The types three tests used in the statistical analysis were two sample t-test, Wilcox Rank Sum, and generalized linear model.
+
+**Two Sample T-test**
+
+Two sample t-test will tell us if there is a significant difference between the means of the batting average of high paid and low paid groups.
+
+**Assumptions** of two sample t-test:
+
+* Both samples are random samples
+* Both populations have normal distributions
+* The variance of both populations is equal
+
+**Wilcox Rank Sum Test**
+
+Wilcox rank sum test is a non-parametric test, meaning it is used when the assumptions can't be met for a parametric test, like two sample t-test. This test compares the central tendencies of two groups using ranks
+
+**Assumptions** of Wilcox Test:
+
+* Both samples are random samples
+
+* Both samples have the same shape of distribution
+
+**Generalized Linear Model (Binomial Family)**
+
+A GLM is similar to a linear model. It is an approach to model the relationship between a response and explantory variable(s). GLM ignores some of the assumptions the a linear model makes, it does not have to be normally distributed or have equal variances.
+
+**Assumptions**
+
+1) *Response Variable should be distributed like random component*
+
+2) *For each x value there is a corresponding y*
+
+3) *Y values are independent from one another*
+
+****
+
+**Assumption Checks of Batting Average(BA) for two sample t-test**
+
+1) *Both samples are random because they were filtered only by more than 200 at bats from the entire population*
+
+2) *Both populations are normally distributed as shown in figure 2 the spread appears to be normal. As shown in figure 4, the p-value of the shapiro test on residuals > 0.05, so we can not reject H~o~: the data is normally distributed. In appendix section C part 1 the plot of qqPlot of the residuals is shown, given the points fall within the 95% CI of the normal distribution. From these tests data can be assumed normally distributed*
+
+3) *Both populations have equal variance as shown by the Levene's Test p-value > 0.05 so we can reject H~o~: the data has equal variance. This indicates the data does have normal variance. It can also been seen in appendix section C part 1 in the residuals vs fitted plot, there is no distinct pattern showing the data is normally distributed.*
+
+**All assumptions met, a two-sample t-test can be run**
+
+*full t-test can be seen in appendix C part 2*
+
+*State hypothesis*
+
+$H_0 : \mu_L = \mu_H$
+
+$H_A : \mu_L \neq \mu_H$ 
+
+H~0~ :The mean batting average in the low salary group is equal to the mean batting average of the high salary group
+
+H~a~ :The mean batting average in the low salary group is not equal to the mean batting average of the high salary group 
+
+
+```{r, eval=FALSE}
+t.test(LowSalary$BA, HighSalary$BA, var.equal = TRUE)
+```
+
+****
+
+**Assumption Checks of RBI per 100 AB for two sample t-test**
+
+1) *Both samples are random because they were filtered only by more than 200 at bats from the entire population*
+
+2) *Both populations are normally distributed as shown in figure 2 the spread appears to be normal. As shown in figure 4, the p-value of the shapiro test on residuals > 0.05, so we can not reject H~o~: the data is normally distributed. In appendix section C part 1 the plot of qqPlot of the residuals is shown, given the points fall within the 95% CI of the normal distribution. From these tests data can be assumed normally distributed*
+
+3) *Both populations have equal variance as shown by the Levene's Test p-value > 0.05 so we can reject H~o~: the data has equal variance. This indicates the data does have normal variance. It can also been seen in appendix section C part 1 in the residuals vs fitted plot, there is no distinct pattern showing the data is normally distributed.*
+
+**All assumptions met, a two-sample t-test can be run**
+
+*full t-test can be seen in appendix C part 2*
+
+*State hypothesis*
+
+$H_0 : \mu_L = \mu_H$
+
+$H_A : \mu_L \neq \mu_H$ 
+
+H~0~ :The mean number of RBI per 100 at bats in the low salary group is equal to the mean number of RBI per 100 in the high salary group
+
+H~a~ :The mean number of RBI per 100 at bats in the low salary group is not equal to the mean number of RBI per 100 in the high salary group
+
+```{r, eval=FALSE}
+t.test(LowSalary$RBIper100, HighSalary$RBIper100, var.equal = TRUE)
+```
+
+**** 
+
+**Assumption Checks of HR per 100 AB for two sample t-test**
+
+1) *Both samples are random because they were filtered only by more than 200 at bats from the entire population*
+
+2) *As shown in figure 4 the shapiro test shows that the residuals are not normally distributed*
+
+**Not all assumptions met, check assumptions for Wilcox Rank Sum Test**
+
+1) *Both samples are random, see above*
+
+2) *As shown inn figure 2 and 3 the distribution is roughly the same*
+
+**Assumptions met, Wilcox Rank Sum Test can be run**
+
+*full test can be seen in appendix C part 2*
+
+*State hypthosesis* 
+
+$H_0 : \mu_L = \mu_H$
+
+$H_A : \mu_L \neq \mu_H$ 
+
+H~0~: The amount of HR per 100 at bats is the same in the low lalary and high salary groups
+
+H~a~: The amount of HR per 100 at bats is not the same in the low salary and high salary groups
+
+```{r, eval=FALSE}
+wilcox.test(LowSalary$HRper100,HighSalary$HRper100)
+```
+
+****
+
+**Assumption checks to run a Generlized Linear Model**
+
+1) *The response variable, salary, is distributed like the random component*
+
+2) *For each salary point there is a corresponding explanatory variable data entry*
+
+3) *Salaries are independent from one another*
+
+**All assumptions met, a Generlaized Linear Model can be run**
+
+*full model can be seen in appendix C part 3*
+
+*as shown in figure 1, there is co-linearity between HRper100 and RBIper100, so HRper100 is removed.*
+
+*State hypothesis*
+
+$$H_0 : \beta = 0 \\ H_A: \beta \neq 0$$ 
+
+H~0~ There is no relationship between the variables batting average and RBIper100 and the salary that a 2016 MLB player gets paid.
+
+H~a~ There is a relationship between the variables batting average and RBIper100 and the salary that a 2016 MLB player gets paid.
+
+*5 generalized linear models were created, then they were assessed using Akaike information criterion (AIC) and  Bayesian information criterion (BIC). Both are tools to look at goodness of fit of the model. BIC is harsher on scoring more complex models*
+
+****
+
+**Prediction of data points using best model ranked by BIC**
+
+*full prediction shown in appendix C part 4*
+
+Prediction process:
+
+1. From the figure 7 shown in results, it shows that model 5 was the best fit
+
+2. The data was subsetted, splitting off 30 points to be used as test points.
+
+3. The remaining 264 points were used as training points, using the model of best fit to train.
+
+4. Then the model of best fit was used to predict where those 30 subsetted salary points should be. Whether they are 1 "High Salary" or 2 "Low Salary"
+
+****
+
+
+
+```{r, include=FALSE}
+BAsalary<- lm(BA~SalaryCaliber, data = StatsSimple)
+BAshap<- shapiro.test(BAsalary$residuals)
+BAlev<- leveneTest(StatsSimple$BA~StatsSimple$SalaryCaliber)
+RBIsalary<- lm(RBIper100~SalaryCaliber, data = StatsSimple)
+RBIshap<- shapiro.test(RBIsalary$residuals)
+RBIlev<- leveneTest(StatsSimple$RBIper100~StatsSimple$SalaryCaliber)
+HRsalary<-lm(HRper100~SalaryCaliber, data = StatsSimple)
+HRshap<- shapiro.test(HRsalary$residuals)
+HRlev<- leveneTest(StatsSimple$HRper100~StatsSimple$SalaryCaliber)
+
+SalarysumShap<- c(BAshap$p.value,RBIshap$p.value,HRshap$p.value) %>%  setNames(c("BA ", "RBIper100 ", "HRper100 "))
+
+SalarysumLev<- c(0.3814,0.4193,0.1927) 
+
+  SalTestdf<-data.frame(SalarysumShap, SalarysumLev)
+```
+
+
+```{r warnings=FALSE, fig.show="hold", echo=FALSE, output=FALSE}
+
+options(kableExtra.auto_format = FALSE)
+knitr::kable(SalTestdf, caption= "Figure 4: Normality and Equal Variance Test Table For Salary Variable", col.names = c("Shapiro P-value", "Levene P-value")) 
+```
+
+****
+
+### Results
+
+**Results of Batting Average T-test and RBI per 100 at bats T-test**
+
+T-tests were performed on both batting average and RBIper100 because they both met all the assumptions required. As shown in figure 5 the p-value of BA t-test <0.05. This means that we can reject out H~0~ that the means are equal. So from this test we can conclude that the means are not equal. As shown in Figure 2, the central tendency of BA is larger in the high salary group. It is also shown in appendix D with a Tukey-Kramer test. 
+
+*It can be concluded that high salary players do have a higher batting average than low salary players*
+
+T-test for RBI per 100 at bats also have a p-value <0.05 as shown in figure 5. From this we can reject H~0~ and assumme that there is a difference in the mean number of RBI hit per 100 at bats. As shown in figure 2 and analyzied in appendix D with Tukey-Kramer test the number of RBIper100 is larger in the high salary group.
+
+*It can be concluded that high salary players do have a higher number of RBI per 100 at bats than low salary players*
+
+**Results of Wilcox Rank sum test**
+
+The HR per 100 at bats was nor normally distributed and did not meet the assumptions for a parametric test so a non parametric test was performed. From the results in figure 6 we can see that a p-value of >0.05 was returned. This means that we fail to reject H~0~: that there is a difference in the mean number of homeruns hit between the high and low salary groups
+
+*It can be concluded that there is no difference between the number of home runs hit in 100 at bats between the high and low salary players*
+
+
+
+```{r, include=FALSE}
+t.test(LowSalary$BA, HighSalary$BA, var.equal = TRUE)
+
+#Two sample t-test of RBI per 100 ab and salary
+t.test(LowSalary$RBIper100, HighSalary$RBIper100, var.equal = TRUE)
+
+#wilcox rank sum test of HR per 100 ab and salary
+wilcox.test(LowSalary$HRper100,HighSalary$HRper100)
+
+pval<- c(0.02605,0.01219) %>% 
+  setNames(c("Batting Avg", "RBI per 100"))
+CI<- c(paste0(-0.016112375, -0.001029543), paste(-2.0043759, -0.2474258))
+alpha<- c(0.05,0.05)
+df<- c(292,292)
+tval<- c(-2.2368,-2.5225)
+
+res1df<- data.frame(pval,CI,alpha,df,tval)
+
+pval1<- (0.06403) %>% 
+  setNames("HR per 100")
+w<- (8464)
+
+result2df<- data.frame(pval1,w)
+
+```
+
+
+```{r, warnings=FALSE, fig.show="hold", echo=FALSE, output=FALSE}
+knitr::kable(res1df, caption= "Figure 5: Two sample T-test Results",
+col.names = c("P-value", "95% Confidence Intervals","Alpha Level", "Degrees of Freedom", "T-value"))
+
+
+
+knitr::kable(result2df, caption= "Figure 6: Wilcox Rank Sum Test Results", col.names = c("P-value", "W-Value"))
+  
+```
+
+**Results of Generalized Linear Model**
+
+There were 5 models made. As shown in figure 7. The model that I deemed most fit is Salary 5. This model can be written as $$pr(salary group)_i = \beta_0 + exp\beta_1(BA)_i + exp\beta_2(RBIper100)_i+ \epsilon_i$$  All models can be seen in Appendix 3 part C. The reason modal "Salary 5" was choosen is because it had the lowest AIC and BIC values of all the models indicating that it is the best fit.
+
+B~0~= -2.07589 
+
+B~1~= 6.977
+
+B~2~= 0.07253
+
+The salary 5 model had one significant explanatory variable, RBIper100. As shown in appendix C part 3 the Pr(>Chisq) of RBIper100 = 0.0378. This indicates that the best predictor of salary group is from the RBI per 100 at bats.
+```{r,include=FALSE}
+StatsSimple<-StatsSimple %>% 
+  mutate(SalaryBin= ifelse(salary > 1000000, 1, 0))
+```
+
+
+
+```{r, include= FALSE}
+#make salary high and low into binary 0 and 1 so the binomial 
+StatsSimple<-StatsSimple %>% 
+  mutate(SalaryBin= ifelse(salary > 1000000, 1, 0))
+Salary1<- glm(SalaryBin~BA+ RBIper100+lgID.y, family = "binomial", data = StatsSimple)
+#check residuals of the model not sure if you have to do this for GLM
+Salary2<- glm(SalaryBin~+lgID.y+BA* RBIper100, family = "binomial", data = StatsSimple)
+#check residuals if I need to
+Salary3<- glm(SalaryBin~lgID.y*BA*RBIper100, family ="binomial", data = StatsSimple)
+Salary4<- glm(SalaryBin~BA*RBIper100, family ="binomial", data = StatsSimple)
+Salary5<- glm(SalaryBin~BA+RBIper100, family ="binomial", data = StatsSimple)
+summary(Salary1)
+summary(Salary2)
+summary(Salary3)
+summary(Salary4)
+summary(Salary5)
+Anova(Salary1)
+anova(Salary1)
+Anova(Salary2)
+Anova(Salary3)
+Anova(Salary4)
+Anova(Salary5)
+AIC(Salary1,Salary2, Salary3,Salary4, Salary5)
+BIC(Salary1,Salary2, Salary3, Salary4, Salary5)
+
+aic<- AIC(Salary1,Salary2, Salary3,Salary4, Salary5) 
+bic<-BIC(Salary1,Salary2, Salary3, Salary4, Salary5)
+glmDF<-data.frame(aic,bic) %>% 
+  select(df,AIC,BIC)
+```
+
+```{r, warnings=FALSE, fig.show="hold", echo=FALSE, output=FALSE}
+knitr::kable(glmDF, caption= "Figure 7: GLM Model Results",
+             col.names = c("Degrees of Freedom", "AIC", "BIC"))
+```
+
+```{r warnings=FALSE, message=FALSE, fig.show="hold", echo=FALSE, output=FALSE, fig.cap="Figure 8: GGplot to show that RBIper100, the most significant variable in predicting salary group, is a strong predictor of salary in both the American League and the National League"}
+
+ggplot(StatsSimple, aes(x=RBIper100, y=SalaryBin, color= lgID.y))+
+  geom_point()+
+  geom_smooth(method = "glm", method.args= list(family="binomial"))+
+  labs(title = "GGplot of GLM: RBI per 100AB of players in both Leagues", ylab= "Salary Category", xlab= "RBI per 100 at Bats")+
+  theme_linedraw()
+```
+
+**Results of Salary Group Prediction**
+As shown in figure 9, the salary group prediction did not do a okay job. Many points were left in the middle between the two groups 9 out of 30. The model did get almost exactly 1 and 0 for some predictions. This is likely because predicting salary is very difficult. Mainly because a salary is determined by human interaction. The owners do not use this predictive model to determine the players next contract.
+
+```{r, include=FALSE}
+splitter1<- sample(1:nrow(StatsSimple), 30, replace = F)
+Salary_train<- StatsSimple[-splitter1,]
+Salary_test<- StatsSimple[splitter1,]
+model_all_train<- glm(SalaryBin~BA+RBIper100, family ="binomial", data = StatsSimple)
+model_all_train
+Salary_prediction<- predict(model_all_train,Salary_test)
+Salary_prediction
+```
+
+```{r  warnings=FALSE, message=FALSE, fig.show="hold", echo=FALSE, output=FALSE, comment= NA, fig.cap=" Figure 9: Predicive plot using chosen model: Salary 5"}
+plot(Salary_test$SalaryBin, pch=1, main= "Salary Prediction Plot",
+     xlab= "Sample Points", ylab= "Salary Bin(0,1)")+
+  points(Salary_prediction, pch=10, col="blue")
+```
+
+****
+### Discussion
+
+From the analysis it can be concluded that there is a significant difference between the 2016 MLB batting average and RBI's per 100 at bats for players who are paid over versus under 1,000,000 US dollars. There was found to be no differences between any of the variables based upon league, if interested the results are in appendix D. 
+
+Using the variables statistically significant tests they were used in finding a GLM. The model with the lowest BIC score was choosen. This model did not do a great job predicting the salary caliber. This was a limitation in the study. There are many more variables out there that predict a pkayers salary. For starters, defense is taken into account. Another important one is that salaries are negotiated before the player puts up those statistics for the year. This can be some what ignored because ideally a player will play at the average for that year but aging and injuries all play into affect. Another short coming is that young players that quickly bloosom into stars are often stuck on their low paying rookie contracts which conversely former stars, who signed long expensive contracts, are now aging and not producing at the level that earned them that contract.
+
+These are some of the short comings of the study, if I had more time I would certainly over lay many years of data and try to make it into a multideminsional matrix data set then plot my analysis over time. 
+
+However it is not to say that this study did have significant findings. The is an age old saying in baseball, "the money lies in the RBI's". From this study that was undoubtedly shown as RBI was the most predictive value. 
+
+****
+
+
+
+
+****
+
+### Appendix
+
+### Citations
+
+  Wickham et al., (2019). Welcome to the tidyverse.
+  Journal of Open Source Software, 4(43), 1686,
+  https://doi.org/10.21105/joss.01686
+  
+  John Fox and Sanford Weisberg (2019). An {R} Companion
+  to Applied Regression, Third Edition. Thousand Oaks CA:
+  Sage. URL:
+  https://socialsciences.mcmaster.ca/jfox/Books/Companion/
+  
+  Revelle, W. (2020) psych: Procedures for Personality
+  and Psychological Research, Northwestern University,
+  Evanston, Illinois, USA,
+  https://CRAN.R-project.org/package=psych Version =
+  2.0.7,.
+  
+  John Fox and Sanford Weisberg (2019). An R Companion to
+  Applied Regression, 3rd Edition. Thousand Oaks, CA
+  
+  Yihui Xie (2020). knitr: A General-Purpose Package for
+  Dynamic Report Generation in R. R package version 1.29.
+
+  Yihui Xie (2015) Dynamic Documents with R and knitr.
+  2nd edition. Chapman and Hall/CRC. ISBN 978-1498716963
+
+  Yihui Xie (2014) knitr: A Comprehensive Tool for
+  Reproducible Research in R. In Victoria Stodden,
+  Friedrich Leisch and Roger D. Peng, editors,
+  Implementing Reproducible Computational Research.
+  Chapman and Hall/CRC. ISBN 978-1466561595
+  
+   Michael Friendly, Chris Dalzell, Martin Monkman and
+  Dennis Murphy (2020). Lahman: Sean 'Lahman' Baseball
+  Database. R package version 8.0-0.
+  https://CRAN.R-project.org/package=Lahman
+
+  Russell Lenth (2020). emmeans: Estimated Marginal Means, aka
+  Least-Squares Means. R package version 1.5.0.
+  https://CRAN.R-project.org/package=emmeans
+  
+Section A: Data cleaning and manipulation
+```{r, eval=FALSE}
+load('../data/Salaries.RData') 
+
+Salary16<- Salaries %>% 
+filter(yearID==2016)  
+
+load('../data/Batting.RData')
+ 
+Stats16x<- Batting %>% 
+  filter(yearID==2016) %>% 
+  filter(AB > 200) %>% 
+  mutate(BA = (H/AB)) 
+
+Stats16 <- left_join(Stats16x, Salary16, by = "playerID")  %>% 
+  na.omit(salary)
+
+StatsSimple<- Stats16 %>%
+  mutate(HRper100= (HR/AB)*100) %>% 
+  mutate(RBIper100= (RBI/AB)*100) %>% 
+  select(HRper100,RBIper100,BA,salary, lgID.y)
+
+LowSalary<- StatsSimple %>% 
+  filter(SalaryCaliber== "Low")
+
+HighSalary<- StatsSimple %>% 
+  filter(SalaryCaliber== "High")
+
+NL<- StatsSimple %>% 
+  filter(lgID.y== "NL")
+
+AL<- StatsSimple %>% 
+  filter(lgID.y== "AL")
+
+```
+
+Section B: Exploratory Data Analysis
+```{r}
+pairs.panels(StatsSimple[1:3], density = TRUE, cor = TRUE)
+
+par(mfrow= c(2,3))
+boxplot(HRper100~SalaryCaliber, data= StatsSimple, col="cyan", xlab="Salary Group", ylab="HR per 100 at bats")
+boxplot(RBIper100~SalaryCaliber, data= StatsSimple, col="cyan", xlab="Salary Group", ylab="RBI per 100 at bats")
+boxplot(BA~SalaryCaliber, data= StatsSimple, col="cyan", xlab="Salary Group", ylab="Batting Average")
+#boxplot of HR,RBI,BA by league
+
+boxplot(HRper100~lgID.y, data= StatsSimple, col="cornflowerblue", xlab= "League", ylab="HR per 100 at bats")
+boxplot(RBIper100~lgID.y, data= StatsSimple, col="cornflowerblue", xlab= "League", ylab= "RBI per 100 at bats")
+boxplot(BA~lgID.y, data= StatsSimple, col="cornflowerblue", xlab= "League", ylab= "Batting Average")
+
+par(mfrow= c(2,1))
+#HR Low
+hist(LowSalary$HRper100, col="cyan", xlab="HR per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 Low Paid MLB HR")
+
+#HR High
+hist(HighSalary$HRper100, col="cyan", xlab="HR per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 High Paid MLB HR")
+
+#NL  HR
+ hist(NL$HRper100, col="cornflowerblue", xlab="HR per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 National League MLB HR")
+
+#AL HR
+hist(AL$HRper100, col="cornflowerblue", xlab="HR per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 American League MLB HR")
+
+#BA of high and low
+hist(LowSalary$BA, col = "cyan", xlab = "Batting Average", ylab = "Frequency(player count", main ="Histogram of 2016 Low Paid MLB Batting Averages")
+
+
+hist(HighSalary$BA, col = "cyan", xlab = "Batting Average", ylab = "Frequency(player count", main ="Histogram of 2016 High Paid MLB Batting Averages")
+
+
+#BA of AL NL
+hist(NL$BA, col = "cornflowerblue", xlab = "Batting Average", ylab = "Frequency(player count", main ="Histogram of 2016 National League MLB Batting Averages")
+
+
+hist(AL$BA, col = "cornflowerblue", xlab = "Batting Average", ylab = "Frequency(player count", main ="Histogram of 2016 American League MLB Batting Averages")
+
+
+#RBI low and high
+hist(LowSalary$RBIper100, col="cyan", xlab="RBI per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 Low Paid MLB RBI")
+
+
+ hist(HighSalary$RBIper100, col="cyan", xlab="RBI per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 High Paid MLB RBI")
+
+
+#RBI NL and AL
+hist(NL$RBIper100, col="cornflowerblue", xlab="RBI per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 National League MLB RBI")
+
+
+hist(AL$RBIper100, col="cornflowerblue", xlab="RBI per 100 AB", ylab="Frequency (player count)", main="Histogram of 2016 American League MLB RBI")
+
+```
+
+Section c: Statistical Methods
+
+Part 1
+```{r, warning=FALSE}
+par(mfrow = c(2,2))
+
+BAsalary<- lm(BA~SalaryCaliber, data = StatsSimple)
+BAshap<- shapiro.test(BAsalary$residuals)
+BAlev<- leveneTest(StatsSimple$BA~StatsSimple$SalaryCaliber)
+plot(BAsalary)
+
+RBIsalary<- lm(RBIper100~SalaryCaliber, data = StatsSimple)
+RBIshap<- shapiro.test(RBIsalary$residuals)
+RBIlev<- leveneTest(StatsSimple$RBIper100~StatsSimple$SalaryCaliber)
+plot(RBIsalary)
+
+HRsalary<-lm(HRper100~SalaryCaliber, data = StatsSimple)
+HRshap<- shapiro.test(HRsalary$residuals)
+HRlev<- leveneTest(StatsSimple$HRper100~StatsSimple$SalaryCaliber)
+plot(HRsalary)
+
+SalarysumShap<- c(BAshap$p.value,RBIshap$p.value,HRshap$p.value) %>%  
+  setNames(c("BA ", "RBIper100 ", "HRper100 "))
+SalarysumLev<- c(0.3814,0.4193,0.1927) 
+  
+SalTestdf<-data.frame(SalarysumShap, SalarysumLev)
+
+knitr::kable(SalTestdf, caption= "Normality and Variance Table", col.names = c("Shapiro P-value", "Levene P-value")) 
+
+
+#Tukey Kramer test
+anova(BAsalary)
+emmeans(BAsalary, pairwise~SalaryCaliber)
+
+anova(RBIsalary)
+emmeans(RBIsalary, pairwise~SalaryCaliber)
+```
+
+Appendix C: Part 2
+```{r}
+#Two sample t-test of Batting average and salary
+t.test(LowSalary$BA, HighSalary$BA, var.equal = TRUE)
+
+#Two sample t-test of RBI per 100 ab and salary
+t.test(LowSalary$BA, HighSalary$BA, var.equal = TRUE)
+
+#wilcox rank sum test of HR per 100 ab and salary
+wilcox.test(LowSalary$HRper100,HighSalary$HRper100)
+```
+
+Appendix C: Part 3
+```{r}
+#make salary high and low into binary 0 and 1 so the binomial 
+StatsSimple<-StatsSimple %>% 
+  mutate(SalaryBin= ifelse(salary > 1000000, 1, 0))
+
+
+Salary1<- glm(SalaryBin~BA+ RBIper100+lgID.y, family = "binomial", data = StatsSimple)
+#check residuals of the model not sure if you have to do this for GLM
+Salary2<- glm(SalaryBin~+lgID.y+BA* RBIper100, family = "binomial", data = StatsSimple)
+#check residuals if I need to
+Salary3<- glm(SalaryBin~lgID.y*BA*RBIper100, family ="binomial", data = StatsSimple)
+
+Salary4<- glm(SalaryBin~BA*RBIper100, family ="binomial", data = StatsSimple)
+
+Salary5<- glm(SalaryBin~BA+RBIper100, family ="binomial", data = StatsSimple)
+
+summary(Salary1)
+summary(Salary2)
+summary(Salary3)
+summary(Salary4)
+summary(Salary5)
+Anova(Salary1)
+Anova(Salary2)
+Anova(Salary3)
+Anova(Salary4)
+Anova(Salary5)
+AIC(Salary1,Salary2, Salary3,Salary4, Salary5)
+BIC(Salary1,Salary2, Salary3, Salary4, Salary5)
+
+
+ggplot(StatsSimple, aes(x=BA, y=SalaryBin,  color= lgID.y))+
+  geom_point()+
+  geom_smooth(method = "glm", method.args= list(family="binomial"))
+
+#observations represent a random sample, yes data picked from 2016 filtering to only those with over 200 at bats, aka starters, no biases in data selection
+
+# co-linearity between predictors, as shown in the pairs.panels plot the r value between HR and RBI is 0.8 so I removed HR.
+
+# there does appear to be a linear relationship between RBIper100 and salary, as well as a slight linear relationship between BA and salary
+
+#create 2 models and check the residuals for normality and equal variance
+```
+
+Appendix C: part 4
+
+```{r}
+#predict data to see how well the model fits 
+
+splitter1<- sample(1:nrow(StatsSimple), 30, replace = F)
+Salary_train<- StatsSimple[-splitter1,]
+Salary_test<- StatsSimple[splitter1,]
+
+model_all_train<- glm(SalaryBin~BA+RBIper100, family ="binomial", data = StatsSimple)
+
+
+Salary_prediction<- predict(model_all_train,Salary_test)
+
+
+plot(Salary_test$SalaryBin, pch=1)+
+  points(Salary_prediction, pch=20, col="red")
+```
+
+Appendix D
+
+```{r}
+# again I will use statsSimple because it contains only the variables I am looking to analyze. 
+
+# split the data into high and low salary players, high >1,000,000$/yr low <= 1,000,000$/yr
+
+StatsSimple<- StatsSimple %>%
+  mutate(SalaryCaliber = ifelse(salary > 1000000, "High", "Low")) %>%  
+  mutate(logHR= log(HRper100+0.01)) 
+
+par(mfrow= c(2,3))
+boxplot(HRper100~SalaryCaliber, data= StatsSimple, col="cyan")
+boxplot(RBIper100~SalaryCaliber, data= StatsSimple, col="cyan")
+boxplot(BA~SalaryCaliber, data= StatsSimple, col="cyan")
+#boxplot of HR,RBI,BA by league
+boxplot(HRper100~lgID.y, data= StatsSimple, col="cornflowerblue", xlab= "League")
+boxplot(RBIper100~lgID.y, data= StatsSimple, col="cornflowerblue", xlab= "League")
+boxplot(BA~lgID.y, data= StatsSimple, col="cornflowerblue", xlab= "League")
+
+
+
+
+# the low salary does not look normally distributed but this is because it is a much smaller range on the scale compared to the high bin. When subsetting low on its own axis you can see its spread is not terrible, although does require some explaining. The base salary is 500,000$ so there are no data values below that and the majority of "low" salary people are on the base salary contract so that is why it is so heavily centered close to 500,000 with some outliers towards 1 million. 
+
+LowSalary<- StatsSimple %>% 
+  filter(SalaryCaliber== "Low")
+
+HighSalary<- StatsSimple %>% 
+  filter(SalaryCaliber== "High")
+
+NL<- StatsSimple %>% 
+  filter(lgID.y== "NL")
+
+AL<- StatsSimple %>% 
+  filter(lgID.y== "AL")
+
+
+#however for our model the explanatory data (the salary does not need to be normally distributed, only the residuals do... I believe.)
+
+
+#Check for normality of all three variables in both catergories that I will be testing
+
+#league BA
+qqPlot(NL$BA, main = "QQ-Plot of National League Batting Avg", ylab = "BA", col = "cornflowerblue")
+qqPlot(AL$BA, main = "QQ-Plot of American League Batting Avg", ylab = "BA", col = "cornflowerblue")
+
+
+#league- RBI
+qqPlot(NL$RBI, main = "QQ-Plot of National League HR", ylab = "HR", col = "cornflowerblue")
+qqPlot(AL$RBI, main = "QQ-Plot of American League HR", ylab = "HR", col = "cornflowerblue")
+
+#league-HR
+qqPlot(NL$HR, main = "QQ-Plot of National League HR", ylab = "HR", col = "cornflowerblue")
+qqPlot(AL$HR, main = "QQ-Plot of American League HR", ylab = "HR", col = "cornflowerblue")
+
+#Check normality of each with shapiro tests
+
+#create linear models of BA,HR,RBI with league to check residuals for normality
+BAleague<- lm(BA~lgID.y, data = StatsSimple)
+ResBAleague<-BAleague$residuals
+
+RBIleague<- lm(RBIper100~lgID.y, data = StatsSimple)
+ResRBIleague<-RBIleague$residuals
+
+HRleague<- lm(HRper100~lgID.y, data = StatsSimple)
+ResHRleague<-HRleague$residuals
+
+#check normality of league residuals
+shapiro.test(ResBAleague)
+shapiro.test(ResRBIleague)
+shapiro.test(ResHRleague) #not normal
+
+
+# now test for variance of the normally distributed BA and RBI data variables
+
+#BA
+leveneTest(StatsSimple$BA~StatsSimple$SalaryCaliber)
+leveneTest(StatsSimple$BA~StatsSimple$lgID.y)
+
+#RBI
+leveneTest(StatsSimple$RBIper100~StatsSimple$SalaryCaliber)
+leveneTest(StatsSimple$HRper100~StatsSimple$lgID.y)
+
+#levene tests showed that all variables that are normally distributed are also equal variance
+#can run paired t-test on both BA and HRper100
+
+#two sample t-test of equal variance
+
+#league
+ t.test(NL$BA, AL$BA, var.equal = TRUE) #cant reject Ho
+ t.test(NL$RBIper100, AL$RBIper100, var.equal = TRUE) #cant reject Ho
+ 
+#non parametric test comparing HR 
+ #cant reject Ho
+wilcox.test(NL$HRper100,AL$HRper100) #cant reject Ho
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
