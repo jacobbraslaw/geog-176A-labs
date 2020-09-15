@@ -6,7 +6,7 @@ date: "8/26/2020"
 output: html_document
 ---
 
-```{r, echo=FALSE}
+```{r, message=FALSE, warning=FALSE, include=FALSE}
 library(raster) # Raster Data handling
 library(tidyverse) # Data Manipulation
 library(getlandsat) # keyless Landsat data (2013-2017)
@@ -18,10 +18,14 @@ library(stats)
 ```
 
 ### Question 1
-First get area of interest, look at 5km buffer around Palo, Iowa.
-```{r}
-cities<- read_csv("../data/uscities.csv") 
 
+First get area of interest, look at 5km buffer around Palo, Iowa.
+```{r, message=FALSE, warning=FALSE}
+cities<- read_csv("../data/uscities.csv")
+```
+
+
+```{r, message=FALSE, warning=FALSE}
 # palo bbox will be the AOI
 palo<- cities %>% 
   filter(city== "Palo") %>% 
@@ -39,16 +43,23 @@ bb = st_bbox(bbwgs)
 ```
 
 ### Question 2 get satelite image in correct region
-```{r}
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
 # work done in seperate r script to pull from land sat imagery
 # region I want
 meta= read_csv(file = "../data/palo_flood.csv")
 
 meta$download_url
+```
 
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE, include=FALSE}
 #want to pull information from the webpage
 lsat_scene_files( meta$download_url)
+```
 
+
+```{r, message=FALSE, warning=FALSE}
 #only interested in the first 6 bands
 files<- lsat_scene_files(meta$download_url) %>% 
   filter(grepl(paste0("B", 1:6, ".TIF$", collapse = "|"), file)) %>% 
@@ -76,7 +87,7 @@ r<- crop(b,crop)
 ```
 
 ### Question 3 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 #rename the bands given their values
 r<-r %>%  setNames(c("coastal", "Blue","Green", "Red", "Near IR", "Swir1"))
 
@@ -97,7 +108,7 @@ plotRGB(r, r=6, g=5,b=2, stretch= "lin") # seperate ag from water
 ```
 
 ### Question 4
-```{r}
+```{r, message=FALSE, warning=FALSE}
 NDVI<- (r$Near.IR-r$Red)/(r$Near.IR+r$Red) #water: <0
 
 NDWI<- (r$Green-r$Near.IR)/(r$Green+r$Near.IR) #water: >0
@@ -155,7 +166,7 @@ plot(flood_stack, col= flood_pallete)
 ```
 
 ### Question 5
-```{r}
+```{r, message=FALSE, warning=FALSE}
 set.seed(09072020)
 
 dim(flood_stack)
@@ -203,7 +214,7 @@ plot(kmeans_raster3,col = RColorBrewer::brewer.pal(3, "Spectral"))
 
 ### Question 5.3
 Build a table to find out what k means groups are water
-```{r}
+```{r, message=FALSE, warning=FALSE}
 #build a table and put the values from one of the rasters and with one of the kmeans, since the raster were 1/0 the kmeans should be easy to compare them to.
 kmeans_raster6
 
@@ -227,7 +238,7 @@ plot(flood_stack, col=flood_pallete)
 ```
 
 ### Question 6
-```{r, warning=FALSE}
+```{r, message=FALSE, warning=FALSE}
 #to find the flooded area need to find the number of cells than can multiply it by 90m^2
 #NDVI flood
 NDVIcellCount<-NDVI_flood %>% 
@@ -272,7 +283,7 @@ mapview(datasum1)
 
 ### Extra Credit
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 #look in Palo, Iowa for this drone image location
 
 #make a point of that raster

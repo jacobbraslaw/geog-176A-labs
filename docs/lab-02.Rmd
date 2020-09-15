@@ -28,9 +28,9 @@ popEst = read_excel("../data/PopulationEstimates.xls",
 ```
 ##### Question 1: Find counties with more than 100 new cases per 100,000 residents of the past 14 days
 
-##### Find the 5 worst cumulative counties, 5 counties with most new case, list of safe counties, and a text report
+###### Find the 5 worst cumulative counties, 5 counties with most new case, list of safe counties, and a text report
 
-```{r, message=FALSE}
+```{r, message=FALSE, warning=FALSE}
 #state of intrest
 state.interest= "California"
 
@@ -43,8 +43,10 @@ newCases<- covid %>%
 
 ```
 
+
 ###### create 2 tables: 5 counties with most cumulative cases and 5 counties with most new cases
-```{r}
+
+```{r, message=FALSE, warning=FALSE}
 #table: 5 most cumulative cases
   
 mostCasesTbl<- newCases %>%
@@ -58,7 +60,7 @@ knitr::kable(mostCasesTbl, caption= "Total Cases by County", col.names = c("Coun
 format.args = list(big.mark = ","))
 ```
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 # table: 5 counties with most new cases
 
 mostNewCases<- newCases %>% 
@@ -73,7 +75,7 @@ format.args = list(big.mark = ","))
 ```
 
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 #use stateCases data set that is filtered to state.interest 
 stCases<- covid %>% 
   filter(state == state.interest) %>% 
@@ -123,7 +125,7 @@ knitr::kable(newCasesPerCapita, caption= "Top 5 Highest New Covid Cases by Count
 ```
 
 
-```{r, message=FALSE}
+```{r, message=FALSE, warning=FALSE}
 # 14 day data
 time.length = 13
 
@@ -143,7 +145,7 @@ twoWeek<- stateCasesPopJoin %>%
   
 ```
 
-```{r, message=FALSE}
+```{r, message=FALSE, warning=FALSE}
 #find total cases
 mostCasesTbl1<- newCases %>%
   filter(date==max(date)) %>% 
@@ -322,4 +324,4 @@ weightedMeanPlot<- ggplot(data = covidSpatial)+
 weightedMeanPlot
 ```
 
-##### Results: The movement of the weighted mean center of COVID-19 cases in the United States moves west/southwest over the progression of the year 2020. This is inline with case reportings as the virus hit the east coast, NYC in particular, very hard in the beginning then spread west to almost all heavily populated cities. 
+###### Results: The movement of the weighted mean center of COVID-19 cases in the United States moves west/southwest over the progression of the year 2020. This is inline with case reportings as the virus hit the east coast, NYC in particular, very hard in the beginning then spread west to almost all heavily populated cities. 

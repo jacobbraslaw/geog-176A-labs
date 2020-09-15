@@ -41,6 +41,8 @@ elevFt<- elev1 *3.281
 writeRaster(elevFt, "../data/basin-elev.tif", overwrite = TRUE)
 ```
 
+### Part 1
+
 Creating building points, river lines, and railway station points
 
 ```{r, message=FALSE, warning=FALSE}
@@ -70,7 +72,10 @@ osm.railway<- osm.building.pts %>%
   
 ```
 
+### Part 2
+
 Terrain analysis
+
 ```{r, message=FALSE, warning=FALSE}
 
 wbt_hillshade("../data/basin-elev.tif","../data/basin-hillshade.tif")
@@ -133,6 +138,8 @@ writeRaster(HAND_adj, "../data/basin-HAND_ADJ.tif", overwrite = TRUE)
 
 
 ```
+
+### Part 3
 
 2017 flood impact assesment
 ```{r, message=FALSE, warning=FALSE}

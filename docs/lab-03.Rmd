@@ -26,7 +26,7 @@ library(ggrepel)
 ###### We need to import 3 data sets, USA States, boundaries of NA, All US Cities
 
 
-```{r, echo=TRUE, results='hide'}
+```{r, echo=TRUE, results='hide', message=FALSE, warning=FALSE}
 #Looking at distance, want to use equidistant projection
 #we will use this proj 4 string as the equidistant projection
 eqdc = '+proj=eqdc +lat_0=40 +lon_0=-96 +lat_1=20 +lat_2=60 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs'
@@ -63,7 +63,7 @@ cities<- readr::read_csv("../data/uscities.csv") %>%
 ##### Question 2 
 ###### finding distances
 
-```{r, warning=FALSE}
+```{r, message=FALSE, warning=FALSE}
 #need to union the CONUS data to find distance to the border of each city
 #2.1 find distance from all cities to the border
 CONUS_c<- CONUS %>% 
@@ -159,7 +159,7 @@ CONUS_c<- CONUS %>%
 
 ##### Question 3
 ###### Visualization
-```{r}
+```{r, message=FALSE, warning=FALSE}
 #3.1 display the data
  #3 continents, CONUS outline, state boundaries, and 10 largest USA cities (by population) on a single map
 
@@ -240,7 +240,7 @@ CityDistPlot<- ggplot()+
 
 #### Question 4
 ##### Real World Application
-```{r}
+```{r, message=FALSE, warning=FALSE}
 #4.1 find how many cities are within 100 miles of the border
 USpop<-cities %>% 
   summarise(USpopulation= sum(population))

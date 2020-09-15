@@ -20,7 +20,7 @@ library(leafem)
 ### Question 1
 #### Here we will prepare five tesselated surfaces from CONUS and write a function to plot them in a descriptive way.
 
-```{r, warning=FALSE}
+```{r, message=FALSE, warning=FALSE}
 #1.1 Get CONUS is equal area
 counties <- USAboundaries::us_counties() 
 states <- USAboundaries::us_states() %>% 
@@ -121,7 +121,7 @@ makeGGPlot(hex_grid, "US Map: Hexagonal Grid")
 ### Question 2
 #### write a function that summarizes our tessalated surfaces
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 AreaMaker2<- function(data, title){
 data %>%
  mutate(area= st_area(data) %>% 
@@ -182,7 +182,7 @@ MasterSum<- bind_rows(CountySum<- AreaMaker(CONUS, "County"),
 ```
 
 ### Question 3
-```{r, warning=FALSE}
+```{r, message=FALSE, warning=FALSE}
 #3.1 read in the data, remove na values, set to sf and make it the right proj coord system
 damn<- read_excel("../data/NID2019_U.xlsx") 
   
@@ -258,7 +258,7 @@ TriangulatePlot
 
 ### Question 4
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 #there's no easy way to see what dam serves which purpose. To overcome this we have to separate the concatenated string
 
 #build NID claasifier
