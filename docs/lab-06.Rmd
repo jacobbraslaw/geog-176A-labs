@@ -1,0 +1,226 @@
+---
+title: "Geography 176A"
+author: "[Jacob Braslaw](https://jacobbraslaw.github.io/)"
+subtitle: "Lab 06: Flood Risk in Mission Creek"
+date: "8/26/2020"
+output: html_document
+---
+
+```{r, include=FALSE}
+library(sf)        # vector manipulation
+library(raster) # raster manipulation
+library(fasterize) # "faster" raster
+library(whitebox)  # terrain analysis
+library(tidyverse)
+# Data libraries
+library(osmdata)   # OSM API
+library(elevatr)   # Elevation  Web Tiles
+```
+
+```{r, message=FALSE, warning=FALSE}
+#read data in
+basin= read_sf("https://labs.waterdata.usgs.gov/api/nldi/linked-data/nwissite/USGS-11119750/basin")
+
+bbox<- basin %>% 
+  st_bbox() %>% 
+  st_as_sfc() %>% 
+  st_as_sf()
+  
+
+#create area of interest to get right region of elevation raster
+elev  = elevatr::get_elev_raster(basin, z = 13) %>%  
+  crop(basin) 
+
+#not sure which I will need
+elev1 <- elev %>% 
+  mask(basin) 
+
+elevFt<- elev1 *3.281
+
+#write to tif
+writeRaster(elevFt, "../data/basin-elev.tif", overwrite = TRUE)
+```
+
+Creating building points, river lines, and railway station points
+
+```{r, message=FALSE, warning=FALSE}
+#add stream data and keeping linestring
+  osm.streams = osmdata::opq(bbox) %>%  
+  add_osm_feature(key = 'waterway', value = "stream") %>% 
+  osmdata_sf() 
+  
+  osm.streams.ln<- osm.streams$osm_lines %>% 
+    st_transform(4326) %>% 
+    st_intersection(basin) 
+  
+#take buildings and make the polygons just centroids of the buildings
+  osm.buildings = osmdata::opq(bbox) %>% 
+    add_osm_feature(key = "building") %>% 
+    osmdata_sf()
+    
+
+osm.building.pts<- osm.buildings$osm_polygons %>% 
+  st_transform(4326) %>% 
+  st_centroid(osm_id) %>% 
+  st_intersection(basin)
+
+#extract railway points 
+osm.railway<- osm.building.pts %>% 
+  dplyr::filter(amenity== "railway") 
+  
+```
+
+Terrain analysis
+```{r, message=FALSE, warning=FALSE}
+
+wbt_hillshade("../data/basin-elev.tif","../data/basin-hillshade.tif")
+hillshade<- raster("../data/basin-hillshade.tif")
+
+#add river and basin boundary to hillshade
+plot(hillshade,col=gray.colors(256, alpha = .5), main="SB Basin Hillshade", axes=FALSE, box=FALSE, legend=FALSE)
+plot(basin, add=TRUE)
+plot(osm.streams.ln, add= TRUE, col="blue")
+
+#Create height above nearest drainage
+
+#first make 10m buffer around the rivers
+osm.streams.ln<- osm.streams$osm_lines %>% 
+    st_transform(crs = crs(basin)) %>% 
+    st_intersection(basin)  
+
+
+
+#made buffer but had to transform to 5070
+osm.streams.buf<- osm.streams.ln %>%
+  st_transform(5070) %>% 
+  st_buffer(10) %>%  
+  st_transform(4326)
+
+stream_raster<-fasterize::fasterize(osm.streams.buf, elevFt)
+
+#write river raster to data
+writeRaster(stream_raster, "../data/basin-river_rast.tif", overwrite = TRUE)
+
+#creat corrected DEM surface
+wbt_breach_depressions("../data/basin-elev.tif", "../data/basin-elev_corrected.tif")
+
+elev.corrected<- raster("../data/basin-elev_corrected.tif")
+
+
+#create final height above nearest drainage :)
+#3 args DEM, river, output
+
+wbt_elevation_above_stream("../data/basin-elev_corrected.tif", "../data/basin-river_rast.tif", "../data/basin-HAND.tif")
+
+HAND<- raster("../data/basin-HAND.tif")
+
+
+```
+
+Correcting DATUM reference
+
+```{r, message=FALSE, warning=FALSE}
+#add to hand because of gage heights by USGS
+HAND_adj<- HAND+3.69
+
+SB_stream<-raster("../data/basin-river_rast.tif")
+
+plot(SB_stream)
+plot(HAND_adj)
+
+HAND_adj[SB_stream==1]=0
+writeRaster(HAND_adj, "../data/basin-HAND_ADJ.tif", overwrite = TRUE)
+
+
+```
+
+2017 flood impact assesment
+```{r, message=FALSE, warning=FALSE}
+#17/02/2017 largest flood map everything that is flooded
+HAND_ADJ<- raster("../data/basin-HAND_ADJ.tif")
+
+
+flood_threshold<- function(x){ifelse(x>10.02,NA,x)}
+  big_flood<- calc(HAND_ADJ,flood_threshold)
+ 
+#count number of structures impacted
+building.flood<- !is.na(raster::extract(big_flood,osm.building.pts))
+sum(building.flood=="TRUE")
+
+
+
+color= ifelse(!is.na(raster::extract(big_flood,osm.building.pts)), "red","black")
+
+plot(hillshade,col=gray.colors(256, alpha = .5), main=paste("SB Flood 02/17/2017, num of structure affected:",sum(building.flood=="TRUE")) , axes=FALSE, box=FALSE, legend=FALSE)
+plot(basin, add=TRUE)
+plot(big_flood, add=TRUE, alpha=0.5, col=  rev(blues9))
+plot(osm.streams.ln, add= TRUE, col="blue")
+plot(osm.railway, add=TRUE, col="green", cex=1, pch=16)
+plot(osm.building.pts$geometry, add=TRUE, pch=16,cex=0.08,col=color)
+
+
+```
+
+### Extra Credit
+
+Create a FIM library for Mission Creek for stage values ranging from 0 to 20 feet. You have also been asked to animate this library as a GIF file showing the hillshade, flood level, and impacted buildings for each stage.
+```{r, warning=FALSE,message=FALSE}
+# get area of interest lower Santa Barbara
+sb = AOI::aoi_get("Santa Barbara")
+
+#clip basin and hand rast to extent of AOI
+
+basin_SB<- basin %>% 
+  st_intersection(sb)
+
+HAND_sb<- HAND_ADJ %>% 
+  crop(sb)
+
+hillshade_sb<- hillshade %>% 
+  crop(sb)
+
+#have to raster stack all the images so they come together
+#lvl0
+flood_threshold<- function(x){ifelse(x>0,NA,x)}
+  flood0<- calc(HAND_ADJ,flood_threshold)
+color0= ifelse(!is.na(raster::extract(big_flood,osm.building.pts)), "red","black")
+```
+
+
+```{r,eval=FALSE}
+#make gif
+library(gifski)
+
+gifski::save_gif({
+  for(i in 0:20) {
+    
+    flood_threshold<- function(x){ifelse(x>i,NA,x)}
+    
+  flood.lvl<- calc(HAND_sb,flood_threshold)
+  
+color= ifelse(!is.na(raster::extract(flood.lvl,osm.building.pts)), "red","black")
+
+building.flood<- !is.na(raster::extract(flood.lvl,osm.building.pts))
+sum(building.flood=="TRUE")
+    
+    plot(hillshade_sb,col=gray.colors(256, alpha = .5), main=paste("SB Flood Impacts, num of structure affected:",sum(building.flood=="TRUE"), "Water Level:", i) , axes=FALSE, box=FALSE, legend=FALSE)
+    
+plot(basin, add=TRUE)
+
+plot(flood.lvl, add=TRUE, alpha=0.7, col=  rev(blues9), legend=FALSE)
+
+ plot(osm.streams.ln$geometry, add= TRUE, col="blue")
+ 
+ plot(osm.railway,add=TRUE,col="green", cex=1, pch=16)
+
+ plot(osm.building.pts, add=TRUE, pch=16,cex=0.08,col=color, alpha=1)
+ }
+}, gif_file = "../data/mission-creek-fim2.gif",
+   width = 600, height = 600, 
+   delay = .7, loop = TRUE)
+
+#I dont know why my buildings arent the top layer but they are turning red if look very closely :(
+```
+
+
+![](../data/mission-creek-fim2.gif)
