@@ -1,0 +1,7 @@
+---
+title: "Yellowstone Trip"
+author: "[Jacob Braslaw](https://jacobbraslaw.github.io/)"
+subtitle: "All locations we went to"
+date: "8/26/2020"
+output: html_document
+---
