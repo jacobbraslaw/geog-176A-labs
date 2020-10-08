@@ -5,3 +5,40 @@ subtitle: "All locations we went to"
 date: "8/26/2020"
 output: html_document
 ---
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+library(raster) # Raster Data handling
+library(tidyverse) # Data Manipulation
+library(getlandsat) # keyless Landsat data (2013-2017)
+library(sf) # Vector data processing
+library(mapview)
+library(osmdata)
+library(stats)
+library(rgdal)
+
+```
+
+
+Step 1 find area of interest, YellowStone DEM and Grand Tetons
+```{r}
+states<- USAboundaries::us_states() %>% 
+  filter(name %in% c("Wyoming", "Idaho", "Montana"))
+
+#get Yellowstone boundary, use as AOI
+YS<-st_read("../data/ab67/ab67.shp")
+plot(YS$geometry)
+YS
+#elevation
+elev  = elevatr::get_elev_raster(YS, z = 13) %>% 
+  crop(YS)
+
+plot(elev)
+plot(YS, add=TRUE)
+
+elev1<- elev %>% 
+  mask(YS)
+
+plot(elev1)
+
+
+```
+
